@@ -85,12 +85,6 @@ jobs:
         ports:
           - 10000:10000
 
-    env:
-      ConnectionStrings__Sql: 'Server=localhost,1433;Database=MunicipalSla;User Id=sa;Password=${{ env.CI_SQL_PASSWORD }};TrustServerCertificate=True;Encrypt=False'
-      Storage__ConnectionString: 'UseDevelopmentStorage=true'
-      Jwt__SigningKey: ${{ env.CI_JWT_SIGNING_KEY }}
-      SEED_PASSWORD: ${{ env.CI_SQL_PASSWORD }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -115,7 +109,14 @@ jobs:
       - name: build
         run: dotnet build --configuration Release --no-restore
 
+      # These belong on the step, not on the job: `jobs.<id>.env` cannot read the
+      # `env` context, while a step's `env` can.
       - name: test
+        env:
+          ConnectionStrings__Sql: 'Server=localhost,1433;Database=MunicipalSla;User Id=sa;Password=${{ env.CI_SQL_PASSWORD }};TrustServerCertificate=True;Encrypt=False'
+          Storage__ConnectionString: 'UseDevelopmentStorage=true'
+          Jwt__SigningKey: ${{ env.CI_JWT_SIGNING_KEY }}
+          SEED_PASSWORD: ${{ env.CI_SQL_PASSWORD }}
         run: >-
           dotnet test --configuration Release --no-build
           --logger "trx;LogFileName=test.trx" --results-directory TestResults
