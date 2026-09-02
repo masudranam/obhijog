@@ -1093,6 +1093,15 @@ adds a fifth suite needs a reason in its description.
 - **Frontend: zero tests.** `ng build` is the gate. This is decision D6, not an omission.
 - No test spins up Azurite; `IAttachmentStore` is doubled.
 
+**The four-suite bar counts application tests.** One suite sits outside it:
+`.claude/hooks/__tests__/run-hook-tests.mjs` covers the guard hooks and runs in the `harness` CI
+job. It is not an exception being smuggled in — the guards are the only thing enforcing the working
+agreement across a long unattended run, and their failure mode is silent: a guard that stops
+working simply allows everything and nothing looks wrong. That is exactly what happened once (a
+byte-order mark on the payload made `JSON.parse` throw, the payload became `{}`, and every guard
+allowed every command), which is why the suite exists and why `readPayload` now fails **closed** on
+input it cannot parse.
+
 ### The gate
 
 Every pull request must pass, in this order:

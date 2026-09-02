@@ -4,7 +4,21 @@ import { join } from 'node:path';
 /** Root of the checkout. Claude Code sets CLAUDE_PROJECT_DIR; cwd is the fallback. */
 export const projectDir = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
 
-/** Read the hook payload that Claude Code writes to stdin. */
+/**
+ * Read the hook payload that Claude Code writes to stdin.
+ *
+ * Returns `{}` when nothing was piped in — a legitimate case some invocations hit.
+ * Returns `{ unparseable: <excerpt> }` when there WAS input but it was not JSON, so
+ * a caller that enforces something can fail closed instead of waving the call
+ * through. A guard that cannot read its input must not allow: that is how a gate
+ * becomes decoration.
+ *
+ * The `.trim()` is load-bearing, not cosmetic. Piping a payload from PowerShell
+ * prepends a U+FEFF byte-order mark; `JSON.parse` throws on it, and the previous
+ * version of this function swallowed that and returned `{}` — which made every guard
+ * allow every command. `trim()` removes it because U+FEFF counts as whitespace per
+ * the language spec. Do not drop it, and do not "simplify" it to a plain parse.
+ */
 export async function readPayload() {
   const raw = await new Promise((resolve) => {
     let data = '';
@@ -15,10 +29,13 @@ export async function readPayload() {
     setTimeout(() => resolve(data), 4000).unref?.();
   });
 
+  const text = raw.trim();
+  if (!text) return {};
+
   try {
-    return JSON.parse(raw || '{}');
+    return JSON.parse(text);
   } catch {
-    return {};
+    return { unparseable: text.slice(0, 200) };
   }
 }
 
