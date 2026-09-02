@@ -166,7 +166,12 @@ jobs:
       - name: syntax-check hooks and bin
         run: |
           set -e
-          for f in .claude/hooks/*.mjs .claude/bin/*.mjs; do
+          for f in .claude/hooks/*.mjs .claude/hooks/__tests__/*.mjs .claude/bin/*.mjs; do
             echo "checking $f"
             node --check "$f"
           done
+
+      # The guards' failure mode is silent: one that stops working simply allows
+      # everything, and nothing looks wrong. This suite exists because that happened.
+      - name: guard behaviour
+        run: node .claude/hooks/__tests__/run-hook-tests.mjs
