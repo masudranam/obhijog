@@ -24,7 +24,22 @@ import {
 } from './_lib.mjs';
 
 const payload = await readPayload();
+
+// Fail closed. There was input but it did not parse, so we cannot see what is about
+// to run — and a guard that allows what it cannot read is not a guard.
+if (payload.unparseable !== undefined) {
+  block(
+    `BLOCKED: guard-git could not parse its hook payload, so it cannot tell what this\n` +
+      `command does.\n\n` +
+      `First 200 characters received:\n  ${payload.unparseable}\n\n` +
+      `This guard fails closed on purpose. Fix the payload — or if the hook wiring in\n` +
+      `.claude/settings.json is wrong, fix that; do not disable the guard to get past it.`,
+  );
+}
+
 const command = commandOf(payload);
+
+// No stdin at all is a legitimate invocation shape, and carries no command to judge.
 if (!command.trim()) allow();
 
 const parts = segments(command);
