@@ -1,7 +1,7 @@
 # Municipal Complaint & SLA Tracking — agent working rules
 
 A civic complaint desk with SLA tracking and automatic escalation.
-**.NET 9 Minimal APIs + EF Core 9 + Azure SQL** API, **Angular 20 standalone + signals + Material**
+**.NET 9 Minimal APIs + EF Core 9 + Azure Database for PostgreSQL** API, **Angular 20 standalone + signals + Material**
 web app, **Azure Blob Storage** for photos. Three roles: `Citizen`, `Staff`, `DeptAdmin`.
 
 ## Source of truth
@@ -124,7 +124,7 @@ npm start     --prefix web                    # ng serve :4200
 npm run build --prefix web                    # the frontend gate
 
 # --- local infrastructure ---
-docker compose -f infra/docker-compose.yml up -d     # SQL Server 2022 + Azurite
+docker compose -f infra/docker-compose.yml up -d     # PostgreSQL 17 + Azurite
 docker compose -f infra/docker-compose.yml ps
 ```
 
@@ -135,7 +135,7 @@ dotnet format --verify-no-changes && dotnet build -c Release && dotnet test -c R
   && npm ci --prefix web && npm run build --prefix web
 ```
 
-CI runs exactly this against a real SQL Server service container on the SHA that will merge.
+CI runs exactly this against a real PostgreSQL service container on the SHA that will merge.
 Prefer reading `gh pr checks` over rebuilding it locally.
 
 ## Environment notes

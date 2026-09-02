@@ -1,7 +1,7 @@
 # Municipal Complaint & SLA Tracking — Product & Technical Specification
 
 > **Status:** v1.0 · **Owner:** Md Masud Rana · **Created:** 2026-09-02
-> **Purpose:** A finishable fullstack portfolio project on .NET 9 + Angular 20 + Azure SQL.
+> **Purpose:** A finishable fullstack portfolio project on .NET 9 + Angular 20 + Azure Database for PostgreSQL.
 > This document is the source of truth for *what* gets built and *in what order*.
 > **Code that disagrees with this file is a bug in one of the two — fix both.**
 
@@ -64,7 +64,7 @@ Those three are also where the tests live (§18).
 ### Goals
 
 - Ship a complete, demonstrable system in **10 milestones**, each a single merged pull request.
-- Exercise the .NET 9 + Angular 20 + Azure SQL stack end to end, with Blob Storage for photos.
+- Exercise the .NET 9 + Angular 20 + Azure Database for PostgreSQL stack end to end, with Blob Storage for photos.
 - Demonstrate a real background-processing story (SLA escalation) that starts in-process and has a
   documented, flag-switched path to Service Bus + Azure Functions.
 
@@ -73,10 +73,10 @@ Those three are also where the tests live (§18).
 | Area | What this project demonstrates |
 |---|---|
 | Domain modelling | A guarded state machine kept out of controllers and out of EF |
-| EF Core 9 | Forward-only migrations, indexed query plans, optimistic concurrency via `RowVersion` |
+| EF Core 9 | Forward-only migrations, indexed query plans, optimistic concurrency via `xmin` |
 | Authorization | Claims-based roles plus a single query-scoping seam, proven by tests |
 | Background work | An idempotent sweeper, safe to trigger manually and safe to relocate |
-| Azure | Azure SQL, Blob Storage with short-lived read SAS, Bicep, container build, GitHub Actions |
+| Azure | Azure Database for PostgreSQL, Blob Storage with short-lived read SAS, Bicep, container build, GitHub Actions |
 | Angular 20 | Standalone components, signals, functional guards, lazy feature routes, Material |
 
 ### Non-goals
@@ -132,8 +132,8 @@ There is also a pseudo-actor, **`System`**, used only by the SLA sweeper. It per
 | Layer | Choice | Notes |
 |---|---|---|
 | API | **.NET 9**, ASP.NET Core **Minimal APIs** grouped per feature | No MediatR — plain injected services. No custom response envelope. |
-| ORM | **EF Core 9** | Forward-only migrations. `RowVersion` concurrency token on `Complaint`. |
-| Database | **Azure SQL** / SQL Server 2022 locally via Docker | One database, no tenancy. |
+| ORM | **EF Core 9** + **Npgsql.EntityFrameworkCore.PostgreSQL 9** | Forward-only migrations. `xmin` concurrency token on `Complaint` (§8.12). |
+| Database | **Azure Database for PostgreSQL flexible server** / PostgreSQL 17 locally via Docker | One database, no tenancy. `snake_case` naming via `EFCore.NamingConventions` (D11). |
 | Blob | **Azure Blob Storage**, **Azurite** locally | Container `complaint-attachments`, private; reads via short-lived SAS. |
 | Errors | **RFC 9457 `ProblemDetails`** | One exception-to-status mapper, no per-endpoint `try/catch`. |
 | Auth | **ASP.NET Core Identity** + self-issued **JWT** (access + refresh) | Role as a claim. Not Entra — see D2 in §23. |
@@ -142,7 +142,7 @@ There is also a pseudo-actor, **`System`**, used only by the SLA sweeper. It per
 | Map | **Leaflet** + OpenStreetMap tiles | No API key, no billing. |
 | Tests | **xUnit** | Four focused suites (§18). Zero frontend tests. |
 | CI | **GitHub Actions** | `dotnet format` → `build -warnaserror` → `test` → `ng build`. |
-| IaC | **Bicep** (M9) | Azure SQL, Storage, Container App, Static Web App, Key Vault, managed identity. |
+| IaC | **Bicep** (M9) | Azure Database for PostgreSQL, Storage, Container App, Static Web App, Key Vault, managed identity. |
 
 ### Prerequisites for a local build
 
@@ -167,7 +167,7 @@ tests/
   MunicipalSla.Tests/                xUnit -- four suites, see §18
 web/                                 Angular 20 workspace
 infra/
-  docker-compose.yml                 SQL Server 2022 + Azurite
+  docker-compose.yml                 PostgreSQL 17 + Azurite
   main.bicep, main.bicepparam        M9
 functions/
   MunicipalSla.Functions/            M10 only -- isolated worker
@@ -200,10 +200,10 @@ review; the project simply must not carry the package reference.
         │  └─────────────────────────────────────────┘  │
         └───────────────┬───────────────────┬───────────┘
                         │                   │
-                  EF Core 9           Azure.Storage.Blobs
+              EF Core 9 + Npgsql      Azure.Storage.Blobs
                         ▼                   ▼
-                 Azure SQL          Blob: complaint-attachments
-              (SQL Server 2022)          (Azurite locally)
+              Azure DB for PostgreSQL   Blob: complaint-attachments
+               (PostgreSQL 17 local)      (Azurite locally)
 ```
 
 Three seams matter, because each is the thing a later milestone or a test plugs into:
@@ -221,7 +221,12 @@ directly outside `Program.cs`. Without this, the SLA tests cannot exist.
 
 ## 8. Data model
 
-All keys are `Guid`. All timestamps are `datetimeoffset` stored in UTC.
+All keys are `uuid`, generated in the application with **`Guid.CreateVersion7()`** (.NET 9) so they
+are time-ordered and keep index locality without a database default. All timestamps are
+`timestamptz`; the API always reads and writes UTC.
+
+PostgreSQL-specific mappings — the concurrency token, naming, case-insensitive search — are
+collected in §8.12 rather than repeated per table.
 
 ### 8.1 `User` (extends `IdentityUser<Guid>`)
 
@@ -229,23 +234,23 @@ All keys are `Guid`. All timestamps are `datetimeoffset` stored in UTC.
 |---|---|---|
 | `Id` | Guid | PK |
 | `Email`, `PasswordHash`, `SecurityStamp`, … | | from Identity |
-| `FullName` | nvarchar(120) | required |
-| `Phone` | nvarchar(24) | optional |
-| `Role` | nvarchar(16) | `Citizen` \| `Staff` \| `DeptAdmin`. Mirrored into the Identity role table; this column is the queryable copy. |
+| `FullName` | varchar(120) | required |
+| `Phone` | varchar(24) | optional |
+| `Role` | varchar(16) | `Citizen` \| `Staff` \| `DeptAdmin`. Mirrored into the Identity role table; this column is the queryable copy. |
 | `DepartmentId` | Guid? | **null for `Citizen`, required for `Staff` and `DeptAdmin`** — a check constraint enforces it |
-| `IsActive` | bit | default 1. Inactive users cannot log in and cannot be assigned. |
-| `CreatedAt` | datetimeoffset | |
+| `IsActive` | boolean | default true. Inactive users cannot log in and cannot be assigned. |
+| `CreatedAt` | timestamptz | |
 
-Indexes: unique `Email` (Identity), `(DepartmentId, Role)` filtered on `IsActive = 1`.
+Indexes: unique `Email` (Identity), `(DepartmentId, Role)` filtered on `IsActive = true`.
 
 ### 8.2 `Department`
 
 | Column | Type | Notes |
 |---|---|---|
 | `Id` | Guid | PK |
-| `Name` | nvarchar(80) | unique |
-| `Code` | nvarchar(12) | unique, uppercase, e.g. `WATER` |
-| `IsActive` | bit | |
+| `Name` | varchar(80) | unique |
+| `Code` | varchar(12) | unique, uppercase, e.g. `WATER` |
+| `IsActive` | boolean | |
 
 **Seeded only.** There is no department CRUD API.
 
@@ -256,11 +261,11 @@ The routing table and the SLA policy in one row. This is the design's main lever
 | Column | Type | Notes |
 |---|---|---|
 | `Id` | Guid | PK |
-| `Name` | nvarchar(80) | unique |
+| `Name` | varchar(80) | unique |
 | `DepartmentId` | Guid | FK → `Department`. Routing target. |
 | `SlaHours` | int | > 0, ≤ 8760. The SLA window. |
-| `DefaultPriority` | nvarchar(8) | `Low` \| `Normal` \| `High` \| `Critical` |
-| `IsActive` | bit | An inactive category cannot receive **new** complaints; existing ones keep working. |
+| `DefaultPriority` | varchar(8) | `Low` \| `Normal` \| `High` \| `Critical` |
+| `IsActive` | boolean | An inactive category cannot receive **new** complaints; existing ones keep working. |
 
 Index: `(IsActive, DepartmentId)`.
 
@@ -272,29 +277,29 @@ complaint at creation. Recategorizing recomputes it (§11.4).
 | Column | Type | Notes |
 |---|---|---|
 | `Id` | Guid | PK |
-| `ReferenceNumber` | nvarchar(20) | unique, `MC-{year}-{seq:D6}` |
+| `ReferenceNumber` | varchar(20) | unique, `MC-{year}-{seq:D6}` |
 | `CitizenId` | Guid | FK → `User` |
 | `CategoryId` | Guid | FK → `ComplaintCategory` |
 | `DepartmentId` | Guid | FK → `Department`. **Denormalized from the category at creation** so that rerouting is an explicit, audited act rather than a side effect of editing a category. |
-| `Title` | nvarchar(140) | required |
-| `Description` | nvarchar(4000) | required |
-| `Status` | nvarchar(16) | see §12 |
-| `Priority` | nvarchar(8) | seeded from the category, editable by DeptAdmin |
+| `Title` | varchar(140) | required |
+| `Description` | varchar(4000) | required |
+| `Status` | varchar(16) | see §12 |
+| `Priority` | varchar(8) | seeded from the category, editable by DeptAdmin |
 | `Latitude` | decimal(9,6) | required, −90…90 |
 | `Longitude` | decimal(9,6) | required, −180…180 |
-| `AddressText` | nvarchar(250) | optional free text |
+| `AddressText` | varchar(250) | optional free text |
 | `AssignedStaffId` | Guid? | FK → `User`. Null unless `Assigned` / `InProgress`. |
-| `CreatedAt` | datetimeoffset | the SLA clock start |
-| `SlaDueAt` | datetimeoffset | stored, not computed |
-| `SlaWarnedAt` | datetimeoffset? | set once per window by the sweeper |
-| `SlaBreachedAt` | datetimeoffset? | set once per window by the sweeper |
-| `EscalationLevel` | tinyint | 0, 1 or 2 |
-| `ResolvedAt` | datetimeoffset? | **the SLA measurement point** |
-| `ClosedAt` | datetimeoffset? | |
-| `RejectionReason` | nvarchar(500)? | required when `Rejected` |
-| `ResolutionNote` | nvarchar(1000)? | required when `Resolved` |
+| `CreatedAt` | timestamptz | the SLA clock start |
+| `SlaDueAt` | timestamptz | stored, not computed |
+| `SlaWarnedAt` | timestamptz? | set once per window by the sweeper |
+| `SlaBreachedAt` | timestamptz? | set once per window by the sweeper |
+| `EscalationLevel` | smallint | 0, 1 or 2 |
+| `ResolvedAt` | timestamptz? | **the SLA measurement point** |
+| `ClosedAt` | timestamptz? | |
+| `RejectionReason` | varchar(500)? | required when `Rejected` |
+| `ResolutionNote` | varchar(1000)? | required when `Resolved` |
 | `ReopenCount` | int | default 0 |
-| `RowVersion` | rowversion | optimistic concurrency token |
+| `Version` | uint, mapped to `xmin` | optimistic concurrency token, see §8.12 |
 
 Indexes, chosen for the queries that actually run:
 
@@ -303,15 +308,15 @@ Indexes, chosen for the queries that actually run:
 | unique `ReferenceNumber` | public tracking lookup |
 | `(CitizenId, CreatedAt desc)` | "my complaints" |
 | `(DepartmentId, Status, SlaDueAt)` | department inbox + SLA filters |
-| `(AssignedStaffId, Status)` filtered `AssignedStaffId IS NOT NULL` | staff queue |
-| `(Status, SlaDueAt)` filtered to open statuses | **the sweep** — this one is load-bearing |
+| `(AssignedStaffId, Status)` partial, `assigned_staff_id IS NOT NULL` | staff queue |
+| `(Status, SlaDueAt)` partial, open statuses only | **the sweep** — this one is load-bearing |
 
 ### 8.5 `ComplaintStatusHistory`
 
 Append-only. Never updated, never deleted.
 
 `Id`, `ComplaintId`, `FromStatus`, `ToStatus`, `Action`, `ChangedById` (null when `IsSystem`),
-`ChangedAt`, `Note` (nvarchar(1000), nullable), `IsSystem` (bit).
+`ChangedAt`, `Note` (varchar(1000), nullable), `IsSystem` (boolean).
 
 Index: `(ComplaintId, ChangedAt)`.
 
@@ -320,23 +325,23 @@ A row is written for **every** accepted transition, including `recategorize` (wh
 
 ### 8.6 `ComplaintComment`
 
-`Id`, `ComplaintId`, `AuthorId`, `Body` (nvarchar(2000)), `IsInternal` (bit), `CreatedAt`.
+`Id`, `ComplaintId`, `AuthorId`, `Body` (varchar(2000)), `IsInternal` (boolean), `CreatedAt`.
 
-`IsInternal = 1` is **never** returned to a `Citizen`, and only `Staff` / `DeptAdmin` may create
+`IsInternal = true` is **never** returned to a `Citizen`, and only `Staff` / `DeptAdmin` may create
 one. Index `(ComplaintId, CreatedAt)`.
 
 ### 8.7 `ComplaintAttachment`
 
-`Id`, `ComplaintId`, `BlobName` (nvarchar(200), unique), `OriginalFileName` (nvarchar(200)),
-`ContentType` (nvarchar(80)), `SizeBytes` (bigint), `UploadedById`, `UploadedAt`.
+`Id`, `ComplaintId`, `BlobName` (varchar(200), unique), `OriginalFileName` (varchar(200)),
+`ContentType` (varchar(80)), `SizeBytes` (bigint), `UploadedById`, `UploadedAt`.
 
 `BlobName` is `{complaintId}/{attachmentId}{ext}` — **never** the user-supplied filename.
 Index `(ComplaintId, UploadedAt)`.
 
 ### 8.8 `EscalationEvent`
 
-`Id`, `ComplaintId`, `ReopenCount`, `Level` (tinyint, 1 or 2), `RaisedAt`,
-`Reason` (nvarchar(200)), `NotifiedUserId` (Guid?).
+`Id`, `ComplaintId`, `ReopenCount`, `Level` (smallint, 1 or 2), `RaisedAt`,
+`Reason` (varchar(200)), `NotifiedUserId` (Guid?).
 
 **Unique index `(ComplaintId, ReopenCount, Level)`.** This is the database-level backstop that makes
 double-escalation impossible even if two sweeps overlap. The sweeper's `WHERE` clause is the first
@@ -345,24 +350,34 @@ legitimately re-runs the ladder while its earlier escalation history is preserve
 
 ### 8.9 `Notification`
 
-`Id`, `RecipientId`, `ComplaintId` (Guid?), `Type` (nvarchar(40)), `Subject` (nvarchar(160)),
-`Body` (nvarchar(2000)), `CreatedAt`, `SentAt` (datetimeoffset?), `Attempts` (int),
-`LastError` (nvarchar(500)?).
+`Id`, `RecipientId`, `ComplaintId` (Guid?), `Type` (varchar(40)), `Subject` (varchar(160)),
+`Body` (varchar(2000)), `CreatedAt`, `SentAt` (timestamptz?), `Attempts` (int),
+`LastError` (varchar(500)?).
 
 Types: `ComplaintSubmitted`, `ComplaintAssigned`, `ComplaintResolved`, `SlaWarning`, `SlaBreached`,
 `SlaEscalatedLevel2`, `ComplaintReopened`, `ComplaintRejected`.
 
-Index `(RecipientId, CreatedAt desc)`, plus `(SentAt)` filtered `SentAt IS NULL`. Writing the row
+Index `(RecipientId, CreatedAt desc)`, plus a partial `(SentAt)` where `sent_at IS NULL`. Writing the row
 and delivering it are separate concerns — the row is the record, delivery is best-effort (F12).
 
 ### 8.10 Reference number generation
 
-A SQL Server `SEQUENCE` named `ComplaintReferenceSeq` (`START WITH 1 INCREMENT BY 1`). The
-reference is `MC-{CreatedAt:yyyy}-{nextval:D6}`.
+A PostgreSQL sequence created by migration:
+
+```sql
+CREATE SEQUENCE complaint_reference_seq START WITH 1 INCREMENT BY 1;
+```
+
+The reference is `MC-{CreatedAt:yyyy}-{nextval:D6}`, where the number comes from
+`SELECT nextval('complaint_reference_seq')` issued in the same transaction as the insert.
 
 The sequence is **global, not per-year** — never reset, so two complaints can never collide even
 across a year boundary, and no read-modify-write race exists. The year in the string is
 informational (D8, §23).
+
+`nextval` is exempt from transaction rollback by design: an abandoned insert burns a number and
+leaves a gap. **Gaps are expected and are not a defect** — the reference is an identifier, not a
+count.
 
 ### 8.11 Seed data (M2, idempotent)
 
@@ -391,6 +406,23 @@ Idempotent means: safe to run against a populated database, matching on natural 
   planting a known password. Never a literal in source.
 - **M7 additionally seeds three deliberately overdue complaints** (one past 80%, one past 100%, one
   past 150%) so the escalation ladder is demonstrable without waiting real hours.
+
+### 8.12 PostgreSQL specifics
+
+Collected here so they are decided once rather than rediscovered per entity.
+
+| Concern | Decision |
+|---|---|
+| **Concurrency token** | PostgreSQL has no `rowversion`. `Complaint.Version` is a `uint` mapped to the system `xmin` column via Npgsql's `UseXminAsConcurrencyToken()`. No extra column, no trigger, and every `UPDATE` bumps it for free. It is never exposed in a DTO. |
+| **Naming** | `snake_case` throughout — tables, columns, indexes, constraints — applied globally by `EFCore.NamingConventions` (`UseSnakeCaseNamingConvention`). Never hand-written per property. Entity and property names stay PascalCase in C#; the spec's tables name the **C# property**, and the column is its snake_case form (`SlaDueAt` → `sla_due_at`). |
+| **Identifiers** | `uuid` columns, values from `Guid.CreateVersion7()` in the application. No `gen_random_uuid()` default, so no extension dependency and no round trip to learn the id. |
+| **Timestamps** | `timestamptz` everywhere, holding `DateTimeOffset`. Npgsql requires the offset to be UTC for `timestamptz`, which suits a system whose clock is UTC by rule (§11.1) — but it means a non-UTC `DateTimeOffset` throws rather than converting. `TimeProvider.GetUtcNow()` is the only source. |
+| **Booleans** | `boolean`, with `true` / `false` literals. Never `0` / `1`. |
+| **`EscalationLevel`** | `smallint` — PostgreSQL has no `tinyint`. |
+| **Partial indexes** | The filtered indexes of §8.4 become PostgreSQL partial indexes via `HasFilter("...")`, written in **snake_case with PostgreSQL syntax** (`"assigned_staff_id" IS NOT NULL`), because `HasFilter` takes raw SQL and the naming convention does not rewrite it. This is the one place the convention will not save you. |
+| **Case-insensitive search** | PostgreSQL comparison is case-sensitive. The `q` filter of §13.3 uses `ILIKE` (`EF.Functions.ILike`), not `LIKE` with `ToLower()`, which would defeat any index. |
+| **Enums** | Stored as `varchar`, not PostgreSQL `enum` types. A native enum needs a migration to add a value, which is exactly the friction we do not want on `Notification.Type`. |
+| **`text` vs `varchar(n)`** | Lengths are declared and enforced as stated in §8. PostgreSQL treats `varchar(n)` and `text` identically in storage, so the length is validation, not optimisation — which is reason to keep it, not to drop it. |
 
 ---
 
@@ -463,7 +495,7 @@ projection *is* the security boundary.
 | Endpoint | Behaviour |
 |---|---|
 | `POST /auth/register` | **Citizen only.** Ignores any supplied role or department. Returns tokens. |
-| `POST /auth/login` | Email + password → access + refresh token. `IsActive = 0` → `401`. |
+| `POST /auth/login` | Email + password → access + refresh token. `IsActive = false` → `401`. |
 | `POST /auth/refresh` | Rotates: the presented refresh token is revoked and a new pair issued. Reuse of an already-revoked token revokes the whole family and returns `401`. |
 | `POST /auth/logout` | Revokes the presented refresh token. |
 | `GET /auth/me` | The caller's id, email, name, role, department. |
@@ -554,7 +586,7 @@ Consequences that are **required behaviour**, each one a test:
 
 A complaint `Resolved` for more than `Sla:AutoCloseAfterDays` (default **7**) is closed by the
 sweeper as the `System` actor: `Status = Closed`, `ClosedAt = now`, plus one
-`ComplaintStatusHistory` row with `IsSystem = 1` and the note
+`ComplaintStatusHistory` row with `IsSystem = true` and the note
 `"Auto-closed after 7 days without citizen response."`
 
 ### 11.6 Batching and safety
@@ -629,7 +661,7 @@ Enforced alongside it, in `ComplaintTransitionService`:
 - `close` by a `Citizen` requires ownership; by a `DeptAdmin`, department scope; by `System`, the
   auto-close age condition.
 - Every accepted transition writes exactly one `ComplaintStatusHistory` row **in the same
-  transaction** as the mutation. A concurrent conflicting transition loses on `RowVersion` and gets
+  transaction** as the mutation. A concurrent conflicting transition loses on `xmin` and gets
   `409`.
 - **`Priority` is not a transition.** `PUT /complaints/{id}/priority` (DeptAdmin) is a separate,
   status-independent edit that also writes a history row with `Action = "priority"`.
@@ -739,7 +771,7 @@ table; no route can bypass it.
 | `unassigned` | bool — `DeptAdmin` |
 | `slaState` | `ok` \| `warning` \| `breached` |
 | `priority` | repeatable |
-| `q` | free text over `Title`, `Description`, `ReferenceNumber`, `AddressText` |
+| `q` | free text over `Title`, `Description`, `ReferenceNumber`, `AddressText`, matched with `ILIKE` (§8.12) |
 | `from`, `to` | `CreatedAt` bounds |
 | `sort` | `createdAt` \| `slaDueAt` \| `priority`, `-` prefix for descending; default `-createdAt` |
 | `page`, `pageSize` | 1-based, default 20, max 100 |
@@ -768,7 +800,7 @@ that delivers it is in the heading; §20 is the live tracker.
 - `Directory.Build.props` sets `net9.0`, `Nullable=enable`, `ImplicitUsings=enable`,
   `TreatWarningsAsErrors=true`, `LangVersion=latest`.
 - `web/` is an Angular 20 workspace with Material and a routed shell that builds clean.
-- `infra/docker-compose.yml` brings up SQL Server 2022 and Azurite.
+- `infra/docker-compose.yml` brings up PostgreSQL 17 and Azurite.
 - `GET /health` returns 200. `GET /health/ready` checks the database and the blob container.
 - `.github/workflows/ci.yml` runs the full gate (§18) on pull requests and is green.
 
@@ -827,7 +859,7 @@ that delivers it is in the heading; §20 is the live tracker.
 - Wrong role → `403`; assignee-only violation by a department colleague → `403`; out-of-scope
   complaint → `404`.
 - An `assigneeId` that is inactive, not `Staff`, or in another department → `400`.
-- Each accepted transition writes one history row in the same transaction; a stale `RowVersion`
+- Each accepted transition writes one history row in the same transaction; a stale `xmin`
   → `409`.
 - The response includes the complaint's new `availableActions`.
 
@@ -907,11 +939,17 @@ that delivers it is in the heading; §20 is the live tracker.
 
 ### F15 — Infrastructure as code & deploy workflow · M9
 
-- `infra/main.bicep`: Azure SQL server + database, Storage account with the private container,
-  Container Apps environment + app for the API, Static Web App for `web/`, Key Vault, and a
-  user-assigned managed identity carrying the SQL and Blob role assignments.
-- **No secret literals.** The API reads `ConnectionStrings:Sql`, `Jwt:SigningKey` and
+- `infra/main.bicep`: an **Azure Database for PostgreSQL flexible server** (Burstable `B1ms`, the
+  cheapest tier that exists — this is a portfolio project) plus its database, a Storage account with
+  the private container, a Container Apps environment and app for the API, a Static Web App for
+  `web/`, Key Vault, and a user-assigned managed identity carrying the Blob role assignment.
+- **Firewall:** no `0.0.0.0` rule. The Container App reaches the database over VNet integration, or
+  failing that through `allowAzureServices` — never a public allow-all, not even briefly.
+- **No secret literals.** The API reads `ConnectionStrings:Postgres`, `Jwt:SigningKey` and
   `Storage:ConnectionString` from Key Vault references; Blob access prefers managed identity.
+- Database auth uses a password in Key Vault. Entra-managed-identity auth to PostgreSQL is
+  possible and is the better end state, but it needs a token-refreshing connection provider — it is
+  named here as the follow-up rather than half-built (see D10).
 - `Dockerfile` for the API: multi-stage, non-root, builds.
 - `.github/workflows/deploy.yml` is **`workflow_dispatch` only** — it never fires on push.
 - Acceptance: `az deployment group what-if` reports no errors. Actually deploying is optional.
@@ -1018,13 +1056,13 @@ they are the cheapest and most valuable things in the codebase to test.
 | Requirement | Target | How it is met |
 |---|---|---|
 | List query latency | < 300 ms at 50k complaints | the five indexes of §8.4; projections, not entity graphs |
-| Sweep duration | < 2 s per pass at 50k complaints | the filtered `(Status, SlaDueAt)` index; batch cap of 200 |
+| Sweep duration | < 2 s per pass at 50k complaints | the partial `(Status, SlaDueAt)` index; batch cap of 200 |
 | Attachment limits | 5 MB, 5 per complaint | validated server-side → `413` / `400` |
 | Token lifetime | access 15 min, refresh 14 days, rotating | §10.2 |
 | Passwords | Identity defaults, ≥ 10 chars, no dev password in source | §8.11 |
 | Blob privacy | container private; reads only via a 15-minute SAS | F6 |
 | Secrets | none in source or committed config; Key Vault in Azure, env vars locally | §19 |
-| Concurrency | lost updates impossible on `Complaint` | `RowVersion` → `409` |
+| Concurrency | lost updates impossible on `Complaint` | `xmin` → `409` |
 | Audit | every status change attributable | append-only `ComplaintStatusHistory` |
 | Accessibility | keyboard-navigable, labelled fields, ≥ 4.5:1 contrast | Material defaults; not separately tested |
 
@@ -1048,8 +1086,10 @@ adds a fifth suite needs a reason in its description.
 | Sweep idempotency | `tests/MunicipalSla.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days |
 | Role scoping | `tests/MunicipalSla.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
 
-- Sweep and scope tests run against **EF Core on SQL Server in a container** where one is available,
-  and are **skipped with a visible message** otherwise — never silently reported as passing.
+- Sweep and scope tests run against **EF Core on a real PostgreSQL** where one is reachable, and are
+  **skipped with a visible message** otherwise — never silently reported as passing. They must not
+  use the EF in-memory provider: it has no transactions, no `xmin`, no unique-index enforcement and
+  no `ILIKE`, so it would silently pass the exact cases §11.3 exists to guarantee.
 - **Frontend: zero tests.** `ng build` is the gate. This is decision D6, not an omission.
 - No test spins up Azurite; `IAttachmentStore` is doubled.
 
@@ -1065,7 +1105,7 @@ npm ci      --prefix web
 npm run build --prefix web
 ```
 
-CI runs it against a real SQL Server service container on the exact SHA that will merge. The same
+CI runs it against a real PostgreSQL service container on the exact SHA that will merge. The same
 commands run locally once the .NET 9 SDK is installed (§5).
 
 ---
@@ -1076,7 +1116,7 @@ No secret ever lands in a committed file. `appsettings.json` carries structure a
 values come from environment variables locally and Key Vault references in Azure.
 
 **One deliberate exception**, and only one: `.github/workflows/ci.yml` defines the SA password and
-JWT signing key for the SQL Server and Azurite containers it creates and destroys inside a single
+JWT signing key for the PostgreSQL and Azurite containers it creates and destroys inside a single
 job. Those containers are unreachable from outside the job and the values exist nowhere else, so
 they are not secrets. They are written as plain literals rather than as
 `secrets.X || 'literal'` fallbacks, because a fallback would disguise the literal while changing
@@ -1084,7 +1124,7 @@ nothing. No deployed environment ever reads them, and no other file may follow t
 
 | Key | Default | Notes |
 |---|---|---|
-| `ConnectionStrings:Sql` | — | **required**, no default |
+| `ConnectionStrings:Postgres` | — | **required**, no default. `Host=…;Port=5432;Database=municipal_sla;Username=…;Password=…;SSL Mode=Disable` locally; `SSL Mode=Require;Trust Server Certificate=false` in Azure |
 | `Jwt:Issuer` / `Jwt:Audience` | `municipal-sla` | |
 | `Jwt:SigningKey` | — | **required, ≥ 32 bytes; startup fails otherwise** |
 | `Jwt:AccessTokenMinutes` | `15` | |
@@ -1187,7 +1227,7 @@ kind · distributed locking for a scaled-out sweeper · PDF reporting · a publi
 
 | # | Decision | Rejected alternative | Why |
 |---|---|---|---|
-| D1 | Trim the MVP to Azure SQL + Blob; escalation runs in-process, with Service Bus + Functions as M10 | Five Azure services from day one | Five services in an MVP is where a portfolio project stops being finished. The sweeper's seam keeps the async story credible and one flag away. |
+| D1 | Trim the MVP to Azure Database for PostgreSQL + Blob; escalation runs in-process, with Service Bus + Functions as M10 | Five Azure services from day one | Five services in an MVP is where a portfolio project stops being finished. The sweeper's seam keeps the async story credible and one flag away. |
 | D2 | Own JWT + ASP.NET Core Identity | Microsoft Entra External ID (B2C) | Entra costs a milestone of portal configuration, is painful to run locally, and blocks every downstream milestone. Roles-as-claims demonstrates the same skill. |
 | D3 | One `POST /complaints/{id}/transitions` endpoint | Seven verb endpoints (`/assign`, `/resolve`, …) | Less code, and no route can bypass the guard table. The action name becomes data, so the UI renders buttons from `availableActions`. |
 | D4 | A calendar-hour SLA clock that never pauses; no `OnHold` status | A business-hours calendar with pause/resume accounting | A holiday calendar and accumulated-pause arithmetic is a project of its own. Stated as a simplification rather than half-built. |
@@ -1196,3 +1236,5 @@ kind · distributed locking for a scaled-out sweeper · PDF reporting · a publi
 | D7 | Attachments stream through the API | Direct-to-blob upload with a write SAS | Direct upload needs storage CORS and a two-step register flow. Streaming works identically on Azurite. Recorded as the natural first improvement. |
 | D8 | A global, never-reset reference sequence | A per-year counter that resets | No read-modify-write race and no cross-year collision. The year in the string is informational. |
 | D9 | `404` for out-of-scope complaints; `403` only for visible-but-forbidden actions | `403` throughout | A `403` confirms the row exists. §9.2 makes this an invariant and a merge blocker. |
+| D10 | **PostgreSQL** (Azure Database for PostgreSQL flexible server), not Azure SQL | Azure SQL / SQL Server | Decided before any migration was written, so the cost was documentation only. PostgreSQL brings a cheaper Burstable tier, a much faster CI service container, and portability off Azure. The costs are real and are accepted: no `rowversion` (§8.12 uses `xmin`), no `tinyint`, case-sensitive comparison (`ILIKE` in §13.3), and Entra-identity database auth needing a token-refreshing provider — so M9 uses a Key Vault password and names identity auth as the follow-up. |
+| D11 | `snake_case` naming, applied globally by `EFCore.NamingConventions` | EF's default PascalCase columns, or hand-written `HasColumnName` | PascalCase in PostgreSQL means every identifier needs double quotes in any hand-written SQL, which is a permanent tax on migrations, `psql` and index filters. One line of configuration beats a `HasColumnName` on every property. The catch is documented in §8.12: `HasFilter` takes raw SQL and is **not** rewritten by the convention, so partial-index filters must be written in snake_case by hand. |

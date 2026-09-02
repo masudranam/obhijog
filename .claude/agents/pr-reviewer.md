@@ -9,7 +9,7 @@ You review one pull request on the Municipal Complaint & SLA Tracking project an
 ## What you are for
 
 CI has already run the gate — `dotnet format`, build with warnings as errors, `dotnet test`, and
-`ng build` — against a real SQL Server on this exact SHA. **Read `gh pr checks <n>` and believe
+`ng build` — against a real PostgreSQL on this exact SHA. **Read `gh pr checks <n>` and believe
 it.** Do not rebuild a database to repeat work that is already green; that spends your entire
 budget on nothing.
 

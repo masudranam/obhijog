@@ -8,7 +8,7 @@ SLA window for that kind of issue. A department admin assigns it to staff, who w
 it. Every complaint runs against a deadline, and when that deadline is missed the system escalates
 automatically and notifies the people responsible.
 
-**Stack:** .NET 9 Minimal APIs · EF Core 9 · Azure SQL · Angular 20 (standalone + signals +
+**Stack:** .NET 9 Minimal APIs · EF Core 9 · Azure Database for PostgreSQL · Angular 20 (standalone + signals +
 Material) · Azure Blob Storage · Bicep · GitHub Actions
 
 ## What is actually interesting here
@@ -53,7 +53,7 @@ tracker — ten milestones, each one issue and one pull request.
 Prerequisites: **.NET 9 SDK**, Node 20+, Docker Desktop.
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d   # SQL Server 2022 + Azurite
+docker compose -f infra/docker-compose.yml up -d   # PostgreSQL 17 + Azurite
 dotnet run --project src/MunicipalSla.Api          # http://localhost:5080
 npm ci --prefix web && npm start --prefix web      # http://localhost:4200
 ```
@@ -72,4 +72,4 @@ dotnet test  --configuration Release
 npm ci --prefix web && npm run build --prefix web
 ```
 
-CI runs exactly this against a real SQL Server service container on the commit that will merge.
+CI runs exactly this against a real PostgreSQL service container on the commit that will merge.

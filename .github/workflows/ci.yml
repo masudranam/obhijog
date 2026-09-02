@@ -25,7 +25,7 @@ env:
   # not stored as repository secrets — a `secrets.X || 'literal'` fallback would
   # only disguise the literal. SPEC §19 records this as the one exception to
   # "no credential literals in committed files"; nothing here exists anywhere else.
-  CI_SQL_PASSWORD: 'Ephemeral-CI-Container-P4ssw0rd!'
+  CI_DB_PASSWORD: 'Ephemeral-CI-Container-P4ssw0rd!'
   CI_JWT_SIGNING_KEY: 'ci-only-signing-key-used-by-no-deployed-environment-0123456789'
 
 jobs:
@@ -56,7 +56,7 @@ jobs:
           fi
 
   # The gate. SPEC.md §18 — format, build with warnings as errors, then test
-  # against a real SQL Server on the exact SHA that will merge.
+  # against a real PostgreSQL on the exact SHA that will merge.
   api:
     name: api gate
     needs: preflight
@@ -64,20 +64,19 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      sql:
-        image: mcr.microsoft.com/mssql/server:2022-latest
+      postgres:
+        image: postgres:17-alpine
         env:
-          ACCEPT_EULA: 'Y'
-          MSSQL_SA_PASSWORD: 'Ephemeral-CI-Container-P4ssw0rd!'
-          MSSQL_PID: Developer
+          POSTGRES_USER: municipal
+          POSTGRES_PASSWORD: 'Ephemeral-CI-Container-P4ssw0rd!'
+          POSTGRES_DB: municipal_sla
         ports:
-          - 1433:1433
+          - 5432:5432
         options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Ephemeral-CI-Container-P4ssw0rd!' -Q 'SELECT 1'"
-          --health-interval 10s
+          --health-cmd "pg_isready -U municipal -d municipal_sla"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 12
-          --health-start-period 30s
+          --health-retries 10
 
       # Blob emulator, so attachment code paths have somewhere to talk to.
       azurite:
@@ -113,10 +112,10 @@ jobs:
       # `env` context, while a step's `env` can.
       - name: test
         env:
-          ConnectionStrings__Sql: 'Server=localhost,1433;Database=MunicipalSla;User Id=sa;Password=${{ env.CI_SQL_PASSWORD }};TrustServerCertificate=True;Encrypt=False'
+          ConnectionStrings__Postgres: 'Host=localhost;Port=5432;Database=municipal_sla;Username=municipal;Password=${{ env.CI_DB_PASSWORD }};SSL Mode=Disable'
           Storage__ConnectionString: 'UseDevelopmentStorage=true'
           Jwt__SigningKey: ${{ env.CI_JWT_SIGNING_KEY }}
-          SEED_PASSWORD: ${{ env.CI_SQL_PASSWORD }}
+          SEED_PASSWORD: ${{ env.CI_DB_PASSWORD }}
         run: >-
           dotnet test --configuration Release --no-build
           --logger "trx;LogFileName=test.trx" --results-directory TestResults

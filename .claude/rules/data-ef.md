@@ -1,8 +1,29 @@
 # Rules — EF Core, migrations and data access
 
 Applies to `src/MunicipalSla.Infrastructure/`.
-Read [SPEC.md §8](../../SPEC.md#8-data-model) and [§9](../../SPEC.md#9-authorization--data-scoping)
-alongside this.
+Read [SPEC.md §8](../../SPEC.md#8-data-model), [§8.12](../../SPEC.md#812-postgresql-specifics) and
+[§9](../../SPEC.md#9-authorization--data-scoping) alongside this.
+
+## PostgreSQL, not SQL Server
+
+Provider is **Npgsql**. The traps, in the order you will hit them:
+
+| Trap | What to do |
+|---|---|
+| `rowversion` does not exist | `UseXminAsConcurrencyToken()` — see Concurrency below |
+| PascalCase identifiers need quoting in every hand-written statement | `UseSnakeCaseNamingConvention()` globally; never `HasColumnName` per property (SPEC D11) |
+| `HasFilter` takes **raw SQL** and the naming convention does not rewrite it | write partial-index filters in snake_case yourself: `HasFilter("assigned_staff_id IS NOT NULL")`. Getting this wrong produces a migration that fails only on apply. |
+| `timestamptz` rejects a non-UTC `DateTimeOffset` | everything comes from `TimeProvider.GetUtcNow()`; never construct a local-offset value |
+| comparison is case-sensitive | `EF.Functions.ILike(...)` for the `q` filter. Not `LIKE` over `.ToLower()` — that cannot use an index |
+| no `tinyint` | `smallint` for `EscalationLevel` |
+| `bit` is not a boolean | `boolean`, with `true` / `false` |
+| `varchar(n)` and `text` store identically | keep the declared lengths anyway — they are validation, not optimisation |
+
+Ids are `Guid.CreateVersion7()` **in the application**. No `gen_random_uuid()` column default: it
+would add an extension dependency and force a round trip to learn the id you just inserted.
+
+Enums are stored as `varchar`, never as native PostgreSQL `enum` types — adding a value to a native
+enum needs a migration, which is friction we do not want on `Notification.Type`.
 
 ## Migrations are forward-only
 
@@ -33,7 +54,7 @@ delete behaviour on every relationship, check constraints, and the indexes from 
 
 ## The indexes are not optional
 
-SPEC §8.4 lists five indexes on `Complaint`, each tied to a query that actually runs. The filtered
+SPEC §8.4 lists five indexes on `Complaint`, each tied to a query that actually runs. The partial
 `(Status, SlaDueAt)` index is the one the sweeper depends on — without it the sweep table-scans
 every complaint every 60 seconds.
 
@@ -82,9 +103,16 @@ Write paths do track, and load only what they mutate.
 
 ## Concurrency
 
-`Complaint.RowVersion` is a `rowversion` concurrency token. A conflicting concurrent transition must
-lose: catch `DbUpdateConcurrencyException` at the handler and return `409` (SPEC §12.4). Do not
-retry silently — the caller's decision was made against stale state and they need to see it.
+`Complaint.Version` maps PostgreSQL's system `xmin` column as the concurrency token, configured once
+with `entity.UseXminAsConcurrencyToken()`. There is no `rowversion` in PostgreSQL and there is no
+extra column here — every `UPDATE` bumps `xmin` for free.
+
+`Version` is a `uint` and is **never exposed in a DTO**. Clients do not send it back; the concurrency
+window is the single request that reads and writes inside one transaction.
+
+A conflicting concurrent transition must lose: catch `DbUpdateConcurrencyException` at the handler
+and return `409` (SPEC §12.4). Do not retry silently — the caller's decision was made against stale
+state and they need to see it.
 
 ## Transactions
 

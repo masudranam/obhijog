@@ -71,7 +71,7 @@ without a reason stated in the PR description.
 
 ## 5 · Push and let CI verify
 
-CI runs the whole gate against a real SQL Server on the exact SHA that will merge. Push and read the
+CI runs the whole gate against a real PostgreSQL on the exact SHA that will merge. Push and read the
 result rather than rebuilding locally; a local run needs Docker and the .NET SDK and tells you
 nothing CI will not.
 

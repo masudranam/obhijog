@@ -22,7 +22,7 @@ Then report, compactly:
 3. **Open PRs** with their CI rollup, and whether a review verdict exists in `.claude/state/`.
 4. **Branch and working tree.** If the tree is dirty and you did not edit anything this session,
    show the diff — a reviewer subagent that died mid-run can leave a mutation behind.
-5. **Local infrastructure** — whether SQL Server and Azurite are up.
+5. **Local infrastructure** — whether PostgreSQL and Azurite are up.
 6. **Blockers** — anything that would stop `/next` from running right now. The .NET SDK not being
    installed is one of these (SPEC §5); say so rather than letting it surface as a build failure.
 
