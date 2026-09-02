@@ -1,0 +1,53 @@
+# ---- .NET ----
+# Anchored to the project trees on purpose: a bare `bin/` also matches .claude/bin/,
+# which holds the harness scripts and must stay tracked.
+src/**/bin/
+src/**/obj/
+tests/**/bin/
+tests/**/obj/
+functions/**/bin/
+functions/**/obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+artifacts/
+TestResults/
+*.trx
+*.coverage
+coverage/
+
+# ---- Node / Angular ----
+node_modules/
+web/dist/
+web/.angular/
+npm-debug.log*
+yarn-error.log*
+
+# ---- Secrets & local config ----
+.env
+.env.*
+!.env.example
+appsettings.Development.local.json
+appsettings.*.local.json
+*.pfx
+*.publishsettings
+
+# ---- Azure / infra local state ----
+__azurite_db*__.json
+__blobstorage__/
+__queuestorage__/
+local.settings.json
+.azure/
+
+# ---- Agent harness runtime state ----
+.claude/state/*.json
+!.claude/state/.gitkeep
+.claude/settings.local.json
+
+# ---- OS / editor ----
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp

@@ -1,0 +1,172 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  NODE_VERSION: '20.x'
+  DOTNET_NOLOGO: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+  # Credentials for containers that are created and destroyed inside a single job
+  # and are unreachable from outside it. These are NOT secrets and are deliberately
+  # not stored as repository secrets — a `secrets.X || 'literal'` fallback would
+  # only disguise the literal. SPEC §19 records this as the one exception to
+  # "no credential literals in committed files"; nothing here exists anywhere else.
+  CI_DB_PASSWORD: 'Ephemeral-CI-Container-P4ssw0rd!'
+  CI_JWT_SIGNING_KEY: 'ci-only-signing-key-used-by-no-deployed-environment-0123456789'
+
+jobs:
+  # What exists yet? Until M1 lands there is no solution and no Angular workspace,
+  # so the gates below have nothing to run. A gate that fails because its subject
+  # does not exist teaches nothing; it just trains you to ignore red.
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      has-api: ${{ steps.check.outputs.has-api }}
+      has-web: ${{ steps.check.outputs.has-web }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if ls ./*.sln >/dev/null 2>&1; then
+            echo "has-api=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-api=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No .sln yet — the API gate is skipped until M1 lands."
+          fi
+          if [ -f web/package.json ]; then
+            echo "has-web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-web=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No web/package.json yet — the web gate is skipped until M1 lands."
+          fi
+
+  # The gate. SPEC.md §18 — format, build with warnings as errors, then test
+  # against a real PostgreSQL on the exact SHA that will merge.
+  api:
+    name: api gate
+    needs: preflight
+    if: needs.preflight.outputs.has-api == 'true'
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: municipal
+          POSTGRES_PASSWORD: 'Ephemeral-CI-Container-P4ssw0rd!'
+          POSTGRES_DB: municipal_sla
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U municipal -d municipal_sla"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # Blob emulator, so attachment code paths have somewhere to talk to.
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:latest
+        ports:
+          - 10000:10000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: cache nuget
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - run: dotnet restore
+
+      # Formatting first: it is the cheapest failure and the most annoying to
+      # discover after a full build.
+      - name: format
+        run: dotnet format --verify-no-changes --no-restore
+
+      - name: build
+        run: dotnet build --configuration Release --no-restore
+
+      # These belong on the step, not on the job: `jobs.<id>.env` cannot read the
+      # `env` context, while a step's `env` can.
+      - name: test
+        env:
+          ConnectionStrings__Postgres: 'Host=localhost;Port=5432;Database=municipal_sla;Username=municipal;Password=${{ env.CI_DB_PASSWORD }};SSL Mode=Disable'
+          Storage__ConnectionString: 'UseDevelopmentStorage=true'
+          Jwt__SigningKey: ${{ env.CI_JWT_SIGNING_KEY }}
+          SEED_PASSWORD: ${{ env.CI_DB_PASSWORD }}
+        run: >-
+          dotnet test --configuration Release --no-build
+          --logger "trx;LogFileName=test.trx" --results-directory TestResults
+
+      - name: upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/
+          if-no-files-found: ignore
+
+  web:
+    name: web gate
+    needs: preflight
+    if: needs.preflight.outputs.has-web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      # There are zero frontend tests by decision (SPEC D6), so this build is the
+      # only automated check the frontend gets. It must be warning-clean.
+      - run: npm run build
+        working-directory: web
+
+  # The hooks and the verdict recorder gate every merge. A syntax error in one of
+  # them fails open, which is the worst way for a gate to fail — so this job runs
+  # from the very first commit, before there is any application code.
+  harness:
+    name: harness scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: syntax-check hooks and bin
+        run: |
+          set -e
+          for f in .claude/hooks/*.mjs .claude/bin/*.mjs; do
+            echo "checking $f"
+            node --check "$f"
+          done

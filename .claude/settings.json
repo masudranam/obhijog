@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(dotnet:*)",
+      "Bash(node .claude/bin/record-verdict.mjs:*)",
+      "Bash(node --check:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm run:*)",
+      "Bash(npm start:*)",
+      "Bash(npx ng:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git add:*)",
+      "Bash(git pull --ff-only:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(docker compose -f infra/docker-compose.yml ps:*)",
+      "Bash(docker compose -f infra/docker-compose.yml up:*)",
+      "Bash(docker compose -f infra/docker-compose.yml logs:*)",
+      "Bash(az deployment group what-if:*)",
+      "PowerShell(dotnet:*)"
+    ],
+    "ask": [
+      "Bash(rm -rf:*)",
+      "Bash(git clean:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh repo create:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(gh api:* --method DELETE:*)",
+      "Bash(docker compose -f infra/docker-compose.yml down:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker system prune:*)",
+      "Bash(az deployment group create:*)",
+      "Bash(dotnet ef database drop:*)",
+      "PowerShell(Remove-Item:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(./**/appsettings.*.local.json)",
+      "Read(./**/local.settings.json)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/*.pfx)",
+      "Read(./**/*.publishsettings)",
+      "Read(./**/id_rsa*)",
+      "Read(./**/.npmrc)",
+      "Read(./**/secrets/**)",
+      "Read(./**/credentials*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-git.mjs",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/session-start.mjs",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
