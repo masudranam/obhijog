@@ -1,0 +1,24 @@
+# Normalise line endings so `dotnet format --verify-no-changes` cannot fail in CI
+# (Linux) over endings that looked fine on Windows.
+* text=auto eol=lf
+
+# Files that must stay LF even in a Windows working copy — Node reads the hooks,
+# and a shell script with CRLF fails with a confusing "bad interpreter".
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Windows-only tooling is happier with CRLF.
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Never touch binaries.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.pfx   binary
