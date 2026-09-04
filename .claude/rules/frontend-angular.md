@@ -25,7 +25,7 @@ Guards are functional (`CanActivateFn`). No class-based guards.
 This is the rule most likely to be broken, and it is the one that matters most.
 
 **Action buttons render from `availableActions` returned by the API.** The guard table lives in
-`MunicipalSla.Domain` and nowhere else. A `canAssign()` helper in a component, a
+`Obhijog.Domain` and nowhere else. A `canAssign()` helper in a component, a
 `switch (status)` that decides which buttons to show, a constant listing which roles may resolve —
 each is a second copy of the guard table that will drift, and each is a review finding.
 

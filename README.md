@@ -1,4 +1,6 @@
-# Municipal Complaint & SLA Tracking
+# Obhijog — Municipal Complaint & SLA Tracking
+
+**অভিযোগ** — *obhijog*, Bangla for "complaint".
 
 A civic complaint desk with SLA tracking and automatic escalation.
 
@@ -54,7 +56,7 @@ Prerequisites: **.NET 9 SDK**, Node 20+, Docker Desktop.
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d   # PostgreSQL 17 + Azurite
-dotnet run --project src/MunicipalSla.Api          # http://localhost:5080
+dotnet run --project src/Obhijog.Api               # http://localhost:5080
 npm ci --prefix web && npm start --prefix web      # http://localhost:4200
 ```
 

@@ -113,7 +113,7 @@ for (const part of parts) {
 
 // ------------------------------------------------- 3 · migrations are forward-only
 
-const MIGRATIONS = /src\/MunicipalSla\.Infrastructure\/Migrations\//i;
+const MIGRATIONS = /src\/Obhijog\.Infrastructure\/Migrations\//i;
 
 for (const part of parts) {
   const touchesMigrations = MIGRATIONS.test(part.replace(/\\/g, '/'));
@@ -125,8 +125,8 @@ for (const part of parts) {
         `Migrations are forward-only once committed (SPEC.md §16.4). Fix a bad\n` +
         `migration by adding another one:\n\n` +
         `  dotnet ef migrations add <Name> \\\n` +
-        `    --project src/MunicipalSla.Infrastructure \\\n` +
-        `    --startup-project src/MunicipalSla.Api\n\n` +
+        `    --project src/Obhijog.Infrastructure \\\n` +
+        `    --startup-project src/Obhijog.Api\n\n` +
         `'dotnet ef migrations remove' is only legitimate for a migration that has\n` +
         `never been committed — if that is the case, say so and do it deliberately.`,
     );

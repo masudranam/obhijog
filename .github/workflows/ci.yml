@@ -67,13 +67,13 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: municipal
+          POSTGRES_USER: obhijog
           POSTGRES_PASSWORD: 'Ephemeral-CI-Container-P4ssw0rd!'
-          POSTGRES_DB: municipal_sla
+          POSTGRES_DB: obhijog
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U municipal -d municipal_sla"
+          --health-cmd "pg_isready -U obhijog -d obhijog"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -112,7 +112,7 @@ jobs:
       # `env` context, while a step's `env` can.
       - name: test
         env:
-          ConnectionStrings__Postgres: 'Host=localhost;Port=5432;Database=municipal_sla;Username=municipal;Password=${{ env.CI_DB_PASSWORD }};SSL Mode=Disable'
+          ConnectionStrings__Postgres: 'Host=localhost;Port=5432;Database=obhijog;Username=obhijog;Password=${{ env.CI_DB_PASSWORD }};SSL Mode=Disable'
           Storage__ConnectionString: 'UseDevelopmentStorage=true'
           Jwt__SigningKey: ${{ env.CI_JWT_SIGNING_KEY }}
           SEED_PASSWORD: ${{ env.CI_DB_PASSWORD }}
