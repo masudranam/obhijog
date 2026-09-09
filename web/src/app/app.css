@@ -1,0 +1,15 @@
+.brand {
+  font-weight: 500;
+}
+
+.brand-sub {
+  margin-left: 0.75rem;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.content {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}

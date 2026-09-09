@@ -1,0 +1,43 @@
+# Local development dependencies. SPEC.md §14 F1 and §19.
+#
+# No password literal lives here. POSTGRES_PASSWORD is required and compose refuses to
+# start without it, rather than planting a known default that could follow the project
+# into somewhere that matters.
+#
+#   cp .env.example .env      # in this directory, then set POSTGRES_PASSWORD
+#   docker compose -f infra/docker-compose.yml up -d
+
+name: obhijog
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: obhijog-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-obhijog}
+      POSTGRES_DB: ${POSTGRES_DB:-obhijog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required — copy infra/.env.example to infra/.env and set it}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-obhijog} -d ${POSTGRES_DB:-obhijog}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: obhijog-azurite
+    restart: unless-stopped
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite-data:/data
+
+volumes:
+  postgres-data:
+  azurite-data:

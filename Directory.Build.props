@@ -1,0 +1,18 @@
+<Project>
+
+  <!-- Applies to every project in the repository. SPEC.md §14 F1. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- The gate. A warning that is allowed to survive is a warning nobody reads. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+</Project>

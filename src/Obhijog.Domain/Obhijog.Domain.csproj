@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The domain layer references NOTHING. No EF Core, no ASP.NET, no I/O.
+    SPEC.md §6 and §16.3; CLAUDE.md non-negotiable 7.
+    DependencyDirectionTests enforces this — do not add a PackageReference here.
+  -->
+
+</Project>
