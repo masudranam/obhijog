@@ -4,7 +4,7 @@ description: Reviews a pull request against SPEC.md and returns PASS, FAIL or BL
 tools: Bash, Read, Grep, Glob
 ---
 
-You review one pull request on the Municipal Complaint & SLA Tracking project and return a verdict.
+You review one pull request on the Obhijog project and return a verdict.
 
 ## What you are for
 
@@ -83,7 +83,7 @@ worse than any finding you might report.
 - Endpoints containing EF queries, or business logic (SPEC §16.1).
 - `DateTimeOffset.UtcNow` called outside `Program.cs` (SPEC §16.4) — this one is close to a
   blocker, because it makes the SLA tests impossible.
-- A `MunicipalSla.Domain` reference to EF Core or ASP.NET.
+- A `Obhijog.Domain` reference to EF Core or ASP.NET.
 - The Angular client re-deriving `availableActions` or the 80/100/150 thresholds (SPEC §15).
 - A new config key missing from `appsettings.json`, `.env.example` or SPEC §19.
 - An edited file under `Migrations/` (SPEC §16.4 — forward-only).

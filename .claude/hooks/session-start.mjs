@@ -36,7 +36,7 @@ const branch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD']) || '(unknown)';
 const dirty = run('git', ['status', '--porcelain']);
 const published = run('git', ['remote', 'get-url', 'origin']) !== '';
 
-say(`## Municipal SLA — session start`);
+say(`## Obhijog — session start`);
 say();
 say(`- branch: **${branch}**${branch === 'main' ? ' (protected — branch before committing)' : ''}`);
 say(`- working tree: ${dirty ? `**dirty**, ${dirty.split('\n').length} path(s)` : 'clean'}`);

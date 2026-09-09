@@ -166,11 +166,11 @@ const feature = repo({ branch: 'feat/1-thing', withOrigin: true });
 
 // 4 · migrations are forward-only
 {
-  const r = run('rm src/MunicipalSla.Infrastructure/Migrations/20260101_Init.cs', feature);
+  const r = run('rm src/Obhijog.Infrastructure/Migrations/20260101_Init.cs', feature);
   check('deleting a migration is blocked', r.code, BLOCK, r.stderr);
 }
 {
-  const r = run('cat src/MunicipalSla.Infrastructure/Migrations/20260101_Init.cs', feature);
+  const r = run('cat src/Obhijog.Infrastructure/Migrations/20260101_Init.cs', feature);
   check('reading a migration is allowed', r.code, ALLOW, r.stderr);
 }
 

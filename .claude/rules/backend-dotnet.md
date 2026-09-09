@@ -1,11 +1,11 @@
 # Rules — .NET API and Domain
 
-Applies to `src/MunicipalSla.Api/` and `src/MunicipalSla.Domain/`.
+Applies to `src/Obhijog.Api/` and `src/Obhijog.Domain/`.
 Read [SPEC.md §16](../../SPEC.md#16-backend-architecture) alongside this.
 
 ## The domain layer is pure
 
-`MunicipalSla.Domain` holds entities, enums, `ComplaintStateMachine` and `SlaPolicy` — and **takes
+`Obhijog.Domain` holds entities, enums, `ComplaintStateMachine` and `SlaPolicy` — and **takes
 no package reference to EF Core, ASP.NET Core, or anything that touches I/O.** No `DbContext`, no
 `IQueryable`, no `HttpContext`, no logger.
 

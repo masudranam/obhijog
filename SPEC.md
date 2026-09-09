@@ -1,6 +1,7 @@
-# Municipal Complaint & SLA Tracking — Product & Technical Specification
+# Obhijog — Municipal Complaint & SLA Tracking · Product & Technical Specification
 
 > **Status:** v1.0 · **Owner:** Md Masud Rana · **Created:** 2026-09-02
+> **Name:** *Obhijog* (অভিযোগ) — Bangla for "complaint".
 > **Purpose:** A finishable fullstack portfolio project on .NET 9 + Angular 20 + Azure Database for PostgreSQL.
 > This document is the source of truth for *what* gets built and *in what order*.
 > **Code that disagrees with this file is a bug in one of the two — fix both.**
@@ -158,26 +159,26 @@ There is also a pseudo-actor, **`System`**, used only by the SLA sweeper. It per
 SPEC.md                              this file — authoritative
 CLAUDE.md                            agent working rules; points into this file
 src/
-  MunicipalSla.Domain/               entities, enums, state machine, SLA policy
+  Obhijog.Domain/                    entities, enums, state machine, SLA policy
                                      -- zero EF Core, zero ASP.NET references
-  MunicipalSla.Infrastructure/       DbContext, configurations, migrations, seed,
+  Obhijog.Infrastructure/            DbContext, configurations, migrations, seed,
                                      blob storage, notification sink, SLA sweeper
-  MunicipalSla.Api/                  Program.cs, endpoint groups, auth, ProblemDetails
+  Obhijog.Api/                       Program.cs, endpoint groups, auth, ProblemDetails
 tests/
-  MunicipalSla.Tests/                xUnit -- four suites, see §18
+  Obhijog.Tests/                     xUnit -- four suites, see §18
 web/                                 Angular 20 workspace
 infra/
   docker-compose.yml                 PostgreSQL 17 + Azurite
   main.bicep, main.bicepparam        M9
 functions/
-  MunicipalSla.Functions/            M10 only -- isolated worker
+  Obhijog.Functions/                 M10 only -- isolated worker
 docs/adr/                            architecture decision records
 .claude/                             the agent harness -- see CLAUDE.md
 .github/workflows/ci.yml             the gate
 ```
 
 **Dependency direction is one-way:** `Api → Infrastructure → Domain`. `Domain` references nothing.
-A `using Microsoft.EntityFrameworkCore` inside `MunicipalSla.Domain` is a design break, caught by
+A `using Microsoft.EntityFrameworkCore` inside `Obhijog.Domain` is a design break, caught by
 review; the project simply must not carry the package reference.
 
 ---
@@ -189,7 +190,7 @@ review; the project simply must not carry the package reference.
                         │  Bearer JWT, HttpClient + auth interceptor
                         ▼
         ┌───────────────────────────────────────────────┐
-        │  MunicipalSla.Api  ── :5080/api/v1            │
+        │  Obhijog.Api  ── :5080/api/v1                 │
         │                                               │
         │  endpoint groups → services → Domain          │
         │                                               │
@@ -462,7 +463,7 @@ Every complaint query is built from:
 IQueryable<Complaint> ComplaintQueryScope.For(IQueryable<Complaint> source, CurrentUser user)
 ```
 
-in `MunicipalSla.Infrastructure`. No endpoint filters on `CitizenId` or `DepartmentId` by hand. A
+in `Obhijog.Infrastructure`. No endpoint filters on `CitizenId` or `DepartmentId` by hand. A
 hand-rolled scope filter inside an endpoint is a review finding **even when it happens to be
 correct**, because the next one will not be.
 
@@ -625,7 +626,7 @@ UI buttons all use exactly these names.
 ### 12.3 The guard table
 
 This **is** the specification of allowed movement. It lives in
-`src/MunicipalSla.Domain/Complaints/ComplaintStateMachine.cs` as a static readonly dictionary keyed
+`src/Obhijog.Domain/Complaints/ComplaintStateMachine.cs` as a static readonly dictionary keyed
 by `(ComplaintStatus From, ComplaintAction Action)`.
 
 | # | From | Action | To | Allowed roles | Assignee-only | Required payload |
@@ -796,7 +797,7 @@ that delivers it is in the heading; §20 is the live tracker.
 
 ### F1 — Solution skeleton & CI gate · M1
 
-- `MunicipalSla.sln` with the four projects of §6 and the one-way reference direction.
+- `Obhijog.sln` with the four projects of §6 and the one-way reference direction.
 - `Directory.Build.props` sets `net9.0`, `Nullable=enable`, `ImplicitUsings=enable`,
   `TreatWarningsAsErrors=true`, `LangVersion=latest`.
 - `web/` is an Angular 20 workspace with Material and a routed shell that builds clean.
@@ -958,7 +959,7 @@ that delivers it is in the heading; §20 is the live tracker.
 
 - Detection stays where it is; only **delivery** moves. On breach, the sweeper publishes an
   `SlaBreached` message instead of writing notifications inline, when `Sla:Transport = ServiceBus`.
-- `functions/MunicipalSla.Functions` — an isolated-worker Service Bus trigger that writes the
+- `functions/Obhijog.Functions` — an isolated-worker Service Bus trigger that writes the
   notification rows, sharing the `Infrastructure` project.
 - Because handling is idempotent (§11.3), a redelivered message is harmless. That is the whole point
   of the design, and a test asserts it.
@@ -1007,7 +1008,7 @@ Conventions:
 
 ### 16.1 Endpoint groups
 
-Minimal APIs, one file per feature under `src/MunicipalSla.Api/Endpoints/`: `AuthEndpoints`,
+Minimal APIs, one file per feature under `src/Obhijog.Api/Endpoints/`: `AuthEndpoints`,
 `ReferenceEndpoints`, `UserEndpoints`, `ComplaintEndpoints`, `TransitionEndpoints`,
 `CommentEndpoints`, `AttachmentEndpoints`, `DashboardEndpoints`, `SlaEndpoints`, `HealthEndpoints`.
 Each exposes `static RouteGroupBuilder Map<X>(this IEndpointRouteBuilder)`.
@@ -1031,7 +1032,7 @@ Business logic lives in `Infrastructure` services over `Domain` types:
 
 ### 16.3 Domain layer
 
-`MunicipalSla.Domain` holds the entities, the enums, `ComplaintStateMachine` (the guard table plus
+`Obhijog.Domain` holds the entities, the enums, `ComplaintStateMachine` (the guard table plus
 `TryTransition`), and `SlaPolicy` (the threshold arithmetic — `DueAt`, `WarnAt`, `Level2At`,
 `ElapsedPercent`). Both are pure functions over values and an injected `TimeProvider`, which is why
 they are the cheapest and most valuable things in the codebase to test.
@@ -1081,10 +1082,10 @@ adds a fifth suite needs a reason in its description.
 
 | Suite | File | Covers |
 |---|---|---|
-| State machine | `tests/MunicipalSla.Tests/ComplaintStateMachineTests.cs` | all twelve rows of §12.3 allowed; a sample of absent pairs rejected; role and assignee-only guards; required-payload validation |
-| SLA arithmetic | `tests/MunicipalSla.Tests/SlaPolicyTests.cs` | `DueAt`, `WarnAt`, `Level2At`, `ElapsedPercent`; the recategorize recompute; the reopen reset — all through a fake `TimeProvider` |
-| Sweep idempotency | `tests/MunicipalSla.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days |
-| Role scoping | `tests/MunicipalSla.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
+| State machine | `tests/Obhijog.Tests/ComplaintStateMachineTests.cs` | all twelve rows of §12.3 allowed; a sample of absent pairs rejected; role and assignee-only guards; required-payload validation |
+| SLA arithmetic | `tests/Obhijog.Tests/SlaPolicyTests.cs` | `DueAt`, `WarnAt`, `Level2At`, `ElapsedPercent`; the recategorize recompute; the reopen reset — all through a fake `TimeProvider` |
+| Sweep idempotency | `tests/Obhijog.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days |
+| Role scoping | `tests/Obhijog.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
 
 - Sweep and scope tests run against **EF Core on a real PostgreSQL** where one is reachable, and are
   **skipped with a visible message** otherwise — never silently reported as passing. They must not
@@ -1133,8 +1134,8 @@ nothing. No deployed environment ever reads them, and no other file may follow t
 
 | Key | Default | Notes |
 |---|---|---|
-| `ConnectionStrings:Postgres` | — | **required**, no default. `Host=…;Port=5432;Database=municipal_sla;Username=…;Password=…;SSL Mode=Disable` locally; `SSL Mode=Require;Trust Server Certificate=false` in Azure |
-| `Jwt:Issuer` / `Jwt:Audience` | `municipal-sla` | |
+| `ConnectionStrings:Postgres` | — | **required**, no default. `Host=…;Port=5432;Database=obhijog;Username=…;Password=…;SSL Mode=Disable` locally; `SSL Mode=Require;Trust Server Certificate=false` in Azure |
+| `Jwt:Issuer` / `Jwt:Audience` | `obhijog` | |
 | `Jwt:SigningKey` | — | **required, ≥ 32 bytes; startup fails otherwise** |
 | `Jwt:AccessTokenMinutes` | `15` | |
 | `Jwt:RefreshTokenDays` | `14` | |
@@ -1247,3 +1248,4 @@ kind · distributed locking for a scaled-out sweeper · PDF reporting · a publi
 | D9 | `404` for out-of-scope complaints; `403` only for visible-but-forbidden actions | `403` throughout | A `403` confirms the row exists. §9.2 makes this an invariant and a merge blocker. |
 | D10 | **PostgreSQL** (Azure Database for PostgreSQL flexible server), not Azure SQL | Azure SQL / SQL Server | Decided before any migration was written, so the cost was documentation only. PostgreSQL brings a cheaper Burstable tier, a much faster CI service container, and portability off Azure. The costs are real and are accepted: no `rowversion` (§8.12 uses `xmin`), no `tinyint`, case-sensitive comparison (`ILIKE` in §13.3), and Entra-identity database auth needing a token-refreshing provider — so M9 uses a Key Vault password and names identity auth as the follow-up. |
 | D11 | `snake_case` naming, applied globally by `EFCore.NamingConventions` | EF's default PascalCase columns, or hand-written `HasColumnName` | PascalCase in PostgreSQL means every identifier needs double quotes in any hand-written SQL, which is a permanent tax on migrations, `psql` and index filters. One line of configuration beats a `HasColumnName` on every property. The catch is documented in §8.12: `HasFilter` takes raw SQL and is **not** rewritten by the convention, so partial-index filters must be written in snake_case by hand. |
+| D12 | Project named **Obhijog** (অভিযোগ, Bangla for "complaint"); transliteration fixed as `Obhijog` | Keeping `MunicipalSla`, or `Nagorik` / `NagorikSeba` / `Prohori` | Decided before anything was scaffolded, so the cost was text only — no namespace, migration or package rename to pay for later. `Obhijog` names the domain's central entity rather than its actor or its watchdog. The spelling is pinned here because Bangla transliteration is unstable: `Ovijog` and `Abhijog` are equally defensible and neither is used anywhere in this repo. The PostgreSQL database and role, and `Jwt:Issuer` / `Jwt:Audience`, are all plain `obhijog`. |

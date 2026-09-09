@@ -1,6 +1,7 @@
-# Municipal Complaint & SLA Tracking — agent working rules
+# Obhijog — Municipal Complaint & SLA Tracking · agent working rules
 
-A civic complaint desk with SLA tracking and automatic escalation.
+**অভিযোগ** — *obhijog*, Bangla for "complaint". A civic complaint desk with SLA tracking and
+automatic escalation.
 **.NET 9 Minimal APIs + EF Core 9 + Azure Database for PostgreSQL** API, **Angular 20 standalone + signals + Material**
 web app, **Azure Blob Storage** for photos. Three roles: `Citizen`, `Staff`, `DeptAdmin`.
 
@@ -49,7 +50,7 @@ These are the rules an agent is most likely to violate. Everything else is in `.
    SPEC §9.3.
 
 3. **Nothing moves a complaint except the guard table.** All twelve transitions go through
-   `ComplaintStateMachine` in `MunicipalSla.Domain`, via `ComplaintTransitionService`, via the
+   `ComplaintStateMachine` in `Obhijog.Domain`, via `ComplaintTransitionService`, via the
    single `POST /complaints/{id}/transitions` endpoint. No verb endpoints, no direct
    `complaint.Status = …` anywhere else. SPEC §12.
 
@@ -66,12 +67,12 @@ These are the rules an agent is most likely to violate. Everything else is in `.
    fields; Angular renders buttons and badges from them. A client-side copy of the guard table or
    of the 80/100/150 thresholds is a review finding. SPEC §15.
 
-7. **Dependency direction is one-way:** `Api → Infrastructure → Domain`. `MunicipalSla.Domain`
+7. **Dependency direction is one-way:** `Api → Infrastructure → Domain`. `Obhijog.Domain`
    takes no package reference to EF Core or ASP.NET. Business logic lives in Infrastructure
    services over Domain types; endpoints bind, call one service, and map a status code.
 
 8. **Migrations are forward-only** once committed. Fix a bad migration by writing another one;
-   never edit or delete a file under `src/MunicipalSla.Infrastructure/Migrations/`.
+   never edit or delete a file under `src/Obhijog.Infrastructure/Migrations/`.
 
 9. **Propagate in the same commit.** Anything that exists twice moves together: entity ↔ migration ↔
    seed ↔ DTO ↔ Angular model ↔ SPEC.md. A new config key lands in `appsettings.json`,
@@ -110,13 +111,13 @@ dotnet restore
 dotnet build   --configuration Release        # TreatWarningsAsErrors=true
 dotnet test    --configuration Release
 dotnet format  --verify-no-changes            # run before every commit
-dotnet run     --project src/MunicipalSla.Api # http://localhost:5080
+dotnet run     --project src/Obhijog.Api      # http://localhost:5080
 
 # --- EF Core (migrations live in Infrastructure, startup is Api) ---
 dotnet ef migrations add <Name> \
-  --project src/MunicipalSla.Infrastructure --startup-project src/MunicipalSla.Api
+  --project src/Obhijog.Infrastructure --startup-project src/Obhijog.Api
 dotnet ef database update \
-  --project src/MunicipalSla.Infrastructure --startup-project src/MunicipalSla.Api
+  --project src/Obhijog.Infrastructure --startup-project src/Obhijog.Api
 
 # --- web ---
 npm ci        --prefix web
@@ -153,13 +154,13 @@ Prefer reading `gh pr checks` over rebuilding it locally.
 
 ```
 SPEC.md                              authoritative — read it, don't guess
-src/MunicipalSla.Domain/             entities, enums, ComplaintStateMachine, SlaPolicy
+src/Obhijog.Domain/                  entities, enums, ComplaintStateMachine, SlaPolicy
                                        → .claude/rules/backend-dotnet.md
-src/MunicipalSla.Infrastructure/     DbContext, migrations, seed, blob, sweeper, services
+src/Obhijog.Infrastructure/          DbContext, migrations, seed, blob, sweeper, services
                                        → .claude/rules/data-ef.md
-src/MunicipalSla.Api/                Program.cs, Endpoints/, auth, ProblemDetails
+src/Obhijog.Api/                     Program.cs, Endpoints/, auth, ProblemDetails
                                        → .claude/rules/backend-dotnet.md
-tests/MunicipalSla.Tests/            the four suites
+tests/Obhijog.Tests/                 the four suites
 web/                                 Angular 20 workspace
                                        → .claude/rules/frontend-angular.md
 infra/                               docker-compose, Bicep (M9)
