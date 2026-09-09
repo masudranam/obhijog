@@ -1,6 +1,6 @@
 # Rules — EF Core, migrations and data access
 
-Applies to `src/MunicipalSla.Infrastructure/`.
+Applies to `src/Obhijog.Infrastructure/`.
 Read [SPEC.md §8](../../SPEC.md#8-data-model), [§8.12](../../SPEC.md#812-postgresql-specifics) and
 [§9](../../SPEC.md#9-authorization--data-scoping) alongside this.
 
@@ -31,7 +31,7 @@ Once a migration is committed it is **immutable**. Fix a bad one by writing anot
 
 ```bash
 dotnet ef migrations add <Name> \
-  --project src/MunicipalSla.Infrastructure --startup-project src/MunicipalSla.Api
+  --project src/Obhijog.Infrastructure --startup-project src/Obhijog.Api
 ```
 
 Never edit, never delete, never `migrations remove` a committed migration. The guard hook blocks
