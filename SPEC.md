@@ -1125,10 +1125,10 @@ commands run locally once the .NET 9 SDK is installed (§5).
 No secret ever lands in a committed file. `appsettings.json` carries structure and safe defaults;
 values come from environment variables locally and Key Vault references in Azure.
 
-**One deliberate exception**, and only one: `.github/workflows/ci.yml` defines the SA password and
-JWT signing key for the PostgreSQL and Azurite containers it creates and destroys inside a single
-job. Those containers are unreachable from outside the job and the values exist nowhere else, so
-they are not secrets. They are written as plain literals rather than as
+**One deliberate exception**, and only one: `.github/workflows/ci.yml` defines the database
+password and JWT signing key for the PostgreSQL and Azurite containers it creates and destroys
+inside a single job. Those containers are unreachable from outside the job and the values exist
+nowhere else, so they are not secrets. They are written as plain literals rather than as
 `secrets.X || 'literal'` fallbacks, because a fallback would disguise the literal while changing
 nothing. No deployed environment ever reads them, and no other file may follow this pattern.
 
@@ -1181,7 +1181,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 
 | M | Issue | Milestone | Features | Depends on | Definition of done | State |
 |---|---|---|---|---|---|---|
-| M1 | #2 | Solution skeleton, CI, health | F1 | — | Four projects build with `-warnaserror`; the Angular shell builds; `docker compose up` gives SQL + Azurite; `/health` and `/health/ready` return 200; the CI gate is green on the PR | ☐ |
+| M1 | #2 | Solution skeleton, CI, health | F1 | — | Four projects build with `-warnaserror`; the Angular shell builds; `docker compose up` gives PostgreSQL 17 + Azurite; `/health` and `/health/ready` return 200; the CI gate is green on the PR | ☐ |
 | M2 | #3 | Domain model, migration, seed | F2 | M1 | `dotnet ef database update` from empty succeeds; every §8 constraint and index present; the seeder is idempotent; seeding without `SEED_PASSWORD` fails cleanly | ☐ |
 | M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☐ |
 | M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☐ |
