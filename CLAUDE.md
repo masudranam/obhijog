@@ -31,10 +31,11 @@ Sections you will need constantly:
 
 ## Where we are
 
-The repo currently contains `SPEC.md`, this file, and the `.claude/` harness. **Nothing is
-scaffolded yet — M1 (issue #2) is next.** The roadmap table in §20 is the live progress tracker:
-`☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before starting
-anything; tick the box in the milestone's own PR, only once the DoD really passes.
+The repo currently contains `SPEC.md`, this file, `README.md`, `docs/adr/`, the `.claude/` harness
+and `.github/workflows/ci.yml`. **Nothing is scaffolded yet — M1 (issue #2) is next.** The roadmap
+table in §20 is the live progress tracker: `☐` not started, `◐` in progress, `☑` done with its DoD
+actually passing. Read it before starting anything; tick the box in the milestone's own PR, only
+once the DoD really passes.
 
 ## Non-negotiables
 
