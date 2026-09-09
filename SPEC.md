@@ -1125,10 +1125,10 @@ commands run locally once the .NET 9 SDK is installed (§5).
 No secret ever lands in a committed file. `appsettings.json` carries structure and safe defaults;
 values come from environment variables locally and Key Vault references in Azure.
 
-**One deliberate exception**, and only one: `.github/workflows/ci.yml` defines the SA password and
-JWT signing key for the PostgreSQL and Azurite containers it creates and destroys inside a single
-job. Those containers are unreachable from outside the job and the values exist nowhere else, so
-they are not secrets. They are written as plain literals rather than as
+**One deliberate exception**, and only one: `.github/workflows/ci.yml` defines the database
+password and JWT signing key for the PostgreSQL and Azurite containers it creates and destroys
+inside a single job. Those containers are unreachable from outside the job and the values exist
+nowhere else, so they are not secrets. They are written as plain literals rather than as
 `secrets.X || 'literal'` fallbacks, because a fallback would disguise the literal while changing
 nothing. No deployed environment ever reads them, and no other file may follow this pattern.
 
