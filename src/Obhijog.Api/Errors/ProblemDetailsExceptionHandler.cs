@@ -46,17 +46,27 @@ public class ProblemDetailsExceptionHandler(
 
         context.Response.StatusCode = status.Value;
 
+        var problemDetails = new ProblemDetails
+        {
+            Status = status,
+            Title = title,
+            Detail = exception.Message,
+            Type = $"https://httpstatuses.io/{status}",
+        };
+
+        // §13.1: a validation failure carries `errors`, keyed by field. Only that case —
+        // attaching an empty dictionary to every other error would invite clients to read
+        // it as "no field was at fault" rather than "this is not a field-level failure".
+        if (exception is ValidationException { Errors.Count: > 0 } validation)
+        {
+            problemDetails.Extensions["errors"] = validation.Errors;
+        }
+
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
             HttpContext = context,
             Exception = exception,
-            ProblemDetails = new ProblemDetails
-            {
-                Status = status,
-                Title = title,
-                Detail = exception.Message,
-                Type = $"https://httpstatuses.io/{status}",
-            },
+            ProblemDetails = problemDetails,
         });
     }
 

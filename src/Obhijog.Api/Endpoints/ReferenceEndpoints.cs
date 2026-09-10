@@ -20,8 +20,23 @@ public static class ReferenceEndpoints
         group.MapGet("/", ListDepartmentsAsync).RequireAuthorization();
         group.MapGet("/{id:guid}/staff", ListStaffAsync).RequireAuthorization(Policies.DeptAdmin);
 
+        // Categories are reference data too, but they hang off /categories rather than
+        // /departments/{id}/categories: the submit form needs every category a citizen may
+        // file against, across departments, and routing is the server's job (§8.4).
+        app.MapGet("/categories", ListCategoriesAsync)
+            .WithTags("reference")
+            .RequireAuthorization();
+
         return group;
     }
+
+    private static async Task<IResult> ListCategoriesAsync(
+        bool? includeInactive,
+        ReferenceService reference,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await reference.ListCategoriesAsync(
+            includeInactive ?? false,
+            cancellationToken));
 
     private static async Task<IResult> ListDepartmentsAsync(
         ReferenceService reference,

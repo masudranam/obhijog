@@ -4,7 +4,7 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
 } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withComponentInputBinding } from '@angular/router';
 
 import { routes } from './app.routes';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
@@ -16,7 +16,9 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
-    provideRouter(routes),
+    // withComponentInputBinding: a route parameter arrives as a component input signal,
+    // so a detail component takes `id` directly instead of subscribing to ActivatedRoute.
+    provideRouter(routes, withComponentInputBinding()),
 
     // Order is the chain of SPEC.md §15: attach and refresh first, surface errors last, so
     // a 401 that the refresh recovers from never reaches the snackbar.

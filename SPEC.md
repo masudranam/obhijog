@@ -640,8 +640,16 @@ sweeper as the `System` actor: `Status = Closed`, `ClosedAt = now`, plus one
 
 `assign`, `reassign`, `recategorize`, `reject`, `start`, `resolve`, `close`, `reopen`.
 
-Eight, and the list is closed. The API payload, the guard table, the history `Action` column and the
-UI buttons all use exactly these names.
+Eight **transition** actions, and that list is closed. The API payload, the guard table and the UI
+buttons all use exactly these names.
+
+The history `Action` column is **wider**, because §8.5 requires a row for movements that are not
+transitions. `submit` is the first of these: it records that a complaint came into existence as
+`New` and has no guard-table entry, because nothing moved. It is written by `ComplaintService` at
+creation and **can never arrive in a request payload** — a caller sending `action: "submit"` to
+`POST /complaints/{id}/transitions` gets the same `409` as any other absent `(From, Action)` pair.
+
+The priority edit needs the same treatment and does not have it yet (issue #25).
 
 ### 12.3 The guard table
 
@@ -804,9 +812,15 @@ table; no route can bypass it.
 - `breached` — `SlaBreachedAt IS NOT NULL`, **regardless of current status**. A breach is historical
   and survives resolution: a resolved-late complaint still answers this filter.
 
-Every complaint DTO returned by the list and the detail endpoints carries
+From **M6 onward**, every complaint DTO returned by the list and the detail endpoints carries
 **`availableActions: string[]`** — the actions this caller may perform on this complaint right now,
 computed from the guard table. The UI renders buttons from it (§15).
+
+The field is **absent in M4 and M5**, not empty. The guard table that computes it does not exist
+until M6, and an empty array would be a claim the client would faithfully render as "you may do
+nothing" rather than "the server cannot say yet". M4's citizen screens therefore show no action
+buttons at all, which is correct: the only actions a citizen has — `close` and `reopen` — need a
+`Resolved` complaint, and nothing can reach `Resolved` before M6.
 
 ---
 
@@ -1045,7 +1059,7 @@ Business logic lives in `Infrastructure` services over `Domain` types:
 
 | Service | Responsibility |
 |---|---|
-| `ComplaintService` | create, read, list (through `ComplaintQueryScope`), export projection |
+| `ComplaintService` | create, read, list (through `ComplaintQueryScope`), the public by-reference projection, export projection |
 | `ComplaintTransitionService` | the single write path for status changes: consults `ComplaintStateMachine`, writes history, applies clock effects, raises notifications |
 | `AttachmentService` | validation, `IAttachmentStore`, SAS issuance |
 | `SlaSweeper : ISlaSweeper` | the ladder and auto-close |
@@ -1215,7 +1229,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M1 | #2 | Solution skeleton, CI, health | F1 | — | Four projects build with `-warnaserror`; the Angular shell builds; `docker compose up` gives PostgreSQL 17 + Azurite; `/health` and `/health/ready` return 200; the CI gate is green on the PR | ☑ |
 | M2 | #3 | Domain model, migration, seed | F2 | M1 | `dotnet ef database update` from empty succeeds; every §8 constraint and index present; the seeder is idempotent; seeding without `SEED_PASSWORD` fails cleanly | ☑ |
 | M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☑ |
-| M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☐ |
+| M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☑ |
 | M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☐ |
 | M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☐ |
 | M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☐ |

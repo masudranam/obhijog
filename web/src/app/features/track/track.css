@@ -1,0 +1,97 @@
+.page {
+  max-width: 640px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.lookup {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.lookup mat-form-field {
+  flex: 1 1 260px;
+}
+
+.lookup button {
+  margin-top: 8px;
+}
+
+.muted {
+  opacity: 0.7;
+}
+
+.result {
+  margin-top: 8px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ref {
+  font-family: monospace;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.breached {
+  color: #b71c1c;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px 24px;
+  margin: 20px 0;
+}
+
+.facts div {
+  margin: 0;
+}
+
+.facts dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+.facts dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+}
+
+h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 24px 0 12px;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timeline li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.when {
+  font-size: 12px;
+  opacity: 0.65;
+}

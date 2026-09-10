@@ -1,0 +1,119 @@
+<div class="page">
+  <a mat-button routerLink="/my" class="back">
+    <mat-icon>arrow_back</mat-icon>
+    All my complaints
+  </a>
+
+  @if (result.isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  @if (result.error()) {
+    <mat-card>
+      <mat-card-content>
+        <h2>Not found</h2>
+        <p class="muted">
+          This complaint does not exist, or it is not one of yours. If you were given a reference
+          number, you can look it up on the tracking page without signing in.
+        </p>
+        <a mat-stroked-button routerLink="/track">Track by reference</a>
+      </mat-card-content>
+    </mat-card>
+  } @else if (result.value(); as complaint) {
+    <mat-card>
+      <mat-card-header>
+        <mat-card-title>{{ complaint.title }}</mat-card-title>
+        <mat-card-subtitle>
+          <span class="ref">{{ complaint.referenceNumber }}</span>
+          · {{ complaint.categoryName }} · {{ complaint.departmentName }}
+        </mat-card-subtitle>
+      </mat-card-header>
+
+      <mat-card-content>
+        <div class="badges">
+          <app-status-chip [status]="complaint.status" />
+          <app-sla-badge
+            [slaDueAt]="complaint.slaDueAt"
+            [slaWarnedAt]="complaint.slaWarnedAt"
+            [slaBreachedAt]="complaint.slaBreachedAt"
+            [resolvedAt]="complaint.resolvedAt"
+            [escalationLevel]="complaint.escalationLevel"
+          />
+        </div>
+
+        <p class="description">{{ complaint.description }}</p>
+
+        <dl class="facts">
+          <div>
+            <dt>Reported</dt>
+            <dd>{{ complaint.createdAt | date: 'medium' }}</dd>
+          </div>
+          <div>
+            <dt>Response due</dt>
+            <dd>{{ complaint.slaDueAt | date: 'medium' }}</dd>
+          </div>
+          @if (complaint.assignedStaffName) {
+            <div>
+              <dt>Assigned to</dt>
+              <dd>{{ complaint.assignedStaffName }}</dd>
+            </div>
+          }
+          @if (complaint.addressText) {
+            <div>
+              <dt>Address</dt>
+              <dd>{{ complaint.addressText }}</dd>
+            </div>
+          }
+          @if (complaint.resolvedAt) {
+            <div>
+              <dt>Resolved</dt>
+              <dd>{{ complaint.resolvedAt | date: 'medium' }}</dd>
+            </div>
+          }
+        </dl>
+
+        @if (complaint.resolutionNote) {
+          <div class="note resolved">
+            <strong>Resolution</strong>
+            <p>{{ complaint.resolutionNote }}</p>
+          </div>
+        }
+        @if (complaint.rejectionReason) {
+          <div class="note rejected">
+            <strong>Why this was rejected</strong>
+            <p>{{ complaint.rejectionReason }}</p>
+          </div>
+        }
+
+        <mat-divider />
+
+        <h3>Where</h3>
+        <app-map-picker
+          [initialLat]="complaint.latitude"
+          [initialLng]="complaint.longitude"
+          [readonly]="true"
+        />
+
+        <mat-divider />
+
+        <h3>Progress</h3>
+        <ol class="timeline">
+          @for (entry of complaint.history; track entry.id) {
+            <li>
+              <div class="dot"></div>
+              <div class="entry">
+                <div class="what">
+                  {{ describe(entry.action, entry.changedByName, entry.isSystem) }}
+                </div>
+                <div class="when">{{ entry.changedAt | date: 'medium' }}</div>
+                @if (entry.note) {
+                  <p class="entry-note">{{ entry.note }}</p>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      </mat-card-content>
+    </mat-card>
+  }
+</div>
