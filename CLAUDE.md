@@ -31,12 +31,12 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1 is done; M2 (issue #3) is next.** The solution, the four projects, the Angular workspace and
-`infra/docker-compose.yml` all exist. There is no data model yet — `ObhijogDbContext` holds no
-entities and no migration has been written, so `/health/ready` checks a reachable but empty
-database. The roadmap table in §20 is the live progress tracker: `☐` not started, `◐` in progress,
-`☑` done with its DoD actually passing. Read it before starting anything; tick the box in the
-milestone's own PR, only once the DoD really passes.
+**M1 and M2 are done; M3 (issue #4) is next.** The solution, the Angular workspace, the compose
+stack, the full §8 data model, the InitialSchema migration and an idempotent seeder all exist.
+There is no authentication yet — Identity's stores and tables are in place but nothing issues or
+validates a token, so no endpoint is protected. The roadmap table in §20 is the live progress
+tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
+starting anything; tick the box in the milestone's own PR, only once the DoD really passes.
 
 ## Non-negotiables
 

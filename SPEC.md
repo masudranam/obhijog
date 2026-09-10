@@ -168,7 +168,8 @@ src/
   Obhijog.Domain/                    entities, enums, state machine, SLA policy
                                      -- zero EF Core, zero ASP.NET references
   Obhijog.Infrastructure/            DbContext, configurations, migrations, seed,
-                                     blob storage, notification sink, SLA sweeper
+                                     blob storage, notification sink, SLA sweeper,
+                                     and the Identity User/Role entities (D13)
   Obhijog.Api/                       Program.cs, endpoint groups, auth, ProblemDetails
 tests/
   Obhijog.Tests/                     xUnit -- four suites, see §18
@@ -236,6 +237,10 @@ PostgreSQL-specific mappings — the concurrency token, naming, case-insensitive
 collected in §8.12 rather than repeated per table.
 
 ### 8.1 `User` (extends `IdentityUser<Guid>`)
+
+**Lives in `Obhijog.Infrastructure`, not `Obhijog.Domain`** — see D13. Domain entities reference
+users by `Guid` only, never by navigation property — but every such column still carries a real
+foreign key, declared with `HasOne<User>().WithMany()` from the Infrastructure-side configuration.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -411,6 +416,15 @@ Idempotent means: safe to run against a populated database, matching on natural 
 - Emails are `<role><n>.<deptcode>@example.test`. The shared development password comes from the
   `SEED_PASSWORD` environment variable and has **no default** — seeding fails loudly rather than
   planting a known password. Never a literal in source.
+Seeding is invoked deliberately and never as a startup side effect:
+
+```bash
+dotnet run --project src/Obhijog.Api -- --seed
+```
+
+It runs *after* migrations and exits without serving. An app that seeded on boot would race a
+rolling deployment.
+
 - **M7 additionally seeds three deliberately overdue complaints** (one past 80%, one past 100%, one
   past 150%) so the escalation ladder is demonstrable without waiting real hours.
 
@@ -1192,7 +1206,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M | Issue | Milestone | Features | Depends on | Definition of done | State |
 |---|---|---|---|---|---|---|
 | M1 | #2 | Solution skeleton, CI, health | F1 | — | Four projects build with `-warnaserror`; the Angular shell builds; `docker compose up` gives PostgreSQL 17 + Azurite; `/health` and `/health/ready` return 200; the CI gate is green on the PR | ☑ |
-| M2 | #3 | Domain model, migration, seed | F2 | M1 | `dotnet ef database update` from empty succeeds; every §8 constraint and index present; the seeder is idempotent; seeding without `SEED_PASSWORD` fails cleanly | ☐ |
+| M2 | #3 | Domain model, migration, seed | F2 | M1 | `dotnet ef database update` from empty succeeds; every §8 constraint and index present; the seeder is idempotent; seeding without `SEED_PASSWORD` fails cleanly | ☑ |
 | M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☐ |
 | M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☐ |
 | M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☐ |
@@ -1259,3 +1273,4 @@ kind · distributed locking for a scaled-out sweeper · PDF reporting · a publi
 | D10 | **PostgreSQL** (Azure Database for PostgreSQL flexible server), not Azure SQL | Azure SQL / SQL Server | Decided before any migration was written, so the cost was documentation only. PostgreSQL brings a cheaper Burstable tier, a much faster CI service container, and portability off Azure. The costs are real and are accepted: no `rowversion` (§8.12 uses `xmin`), no `tinyint`, case-sensitive comparison (`ILIKE` in §13.3), and Entra-identity database auth needing a token-refreshing provider — so M9 uses a Key Vault password and names identity auth as the follow-up. |
 | D11 | `snake_case` naming, applied globally by `EFCore.NamingConventions` | EF's default PascalCase columns, or hand-written `HasColumnName` | PascalCase in PostgreSQL means every identifier needs double quotes in any hand-written SQL, which is a permanent tax on migrations, `psql` and index filters. One line of configuration beats a `HasColumnName` on every property. The catch is documented in §8.12: `HasFilter` takes raw SQL and is **not** rewritten by the convention, so partial-index filters must be written in snake_case by hand. |
 | D12 | Project named **Obhijog** (অভিযোগ, Bangla for "complaint"); transliteration fixed as `Obhijog` | Keeping `MunicipalSla`, or `Nagorik` / `NagorikSeba` / `Prohori` | Decided before anything was scaffolded, so the cost was text only — no namespace, migration or package rename to pay for later. `Obhijog` names the domain's central entity rather than its actor or its watchdog. The spelling is pinned here because Bangla transliteration is unstable: `Ovijog` and `Abhijog` are equally defensible and neither is used anywhere in this repo. The PostgreSQL database and role, and `Jwt:Issuer` / `Jwt:Audience`, are all plain `obhijog`. |
+| D13 | `User` and `Role` live in `Obhijog.Infrastructure`, not `Obhijog.Domain` | Putting every §8 entity in Domain, as §6 implies | §8.1 requires `User : IdentityUser<Guid>`, and that base type comes from the ASP.NET Identity stack. Placing it in Domain would mean a package reference the layer is forbidden to carry (§16.3, CLAUDE.md non-negotiable 7, `backend-dotnet.md`) — one of the two rules had to give, and the purity rule is the one with tests, review checks and a documented reason behind it. The cost is confined to expressiveness: Domain entities hold `CitizenId`, `AssignedStaffId`, `AuthorId`, `RecipientId`, `ChangedById` and `NotifiedUserId` as bare `Guid`s with no navigation property. **It costs no referential integrity** — the entity configurations live in Infrastructure, where `User` is visible, so every one of those columns still carries a real foreign key declared with `HasOne<User>().WithMany()`. Assuming otherwise is the mistake this row exists to prevent. |
