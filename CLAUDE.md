@@ -203,3 +203,7 @@ Two hooks enforce the parts that matter: `guard-git.mjs` blocks commits on `main
 
 **Only four things may block a merge:** red CI, a test that cannot fail, a violation of a SPEC §9
 invariant, and a HIGH security finding. Everything else is advisory and becomes a follow-up issue.
+
+**On a `PASS` with green CI, merge — do not ask.** The reviewer's verdict and the green checks are
+the approval; asking for it a second time is the friction this loop exists to remove. Report the
+merge afterwards, with what was filed as follow-ups.
