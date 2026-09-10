@@ -46,8 +46,9 @@ Not the CRUD. Three things:
 
 ## Status
 
-**M1 of 10 is done.** The solution skeleton, CI gate, Angular shell, local compose stack and the
-health endpoints are in place. There is no data model yet — that is M2. The roadmap table in
+**M2 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
+endpoints, the full data model with its migration, and an idempotent seeder are in place. There is
+no authentication yet — that is M3. The roadmap table in
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.
 
