@@ -19,7 +19,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-obhijog}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required — copy infra/.env.example to infra/.env and set it}
     ports:
-      - "5432:5432"
+      # Override POSTGRES_PORT when something already owns 5432 on the host — a native
+      # PostgreSQL service shadows the container and auth fails confusingly.
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

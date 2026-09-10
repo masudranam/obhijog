@@ -2,6 +2,7 @@ using Azure.Storage.Blobs;
 using Microsoft.EntityFrameworkCore;
 using Obhijog.Api.Endpoints;
 using Obhijog.Api.HealthChecks;
+using Obhijog.Api.Startup;
 using Obhijog.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -52,5 +53,10 @@ var app = builder.Build();
 
 app.UseCors();
 app.MapHealthEndpoints();
+
+// Before serving. In Azure the container comes from Bicep and this is a no-op; locally
+// nothing else creates it, and /health/ready is 503 until it exists.
+await BlobContainerInitializer.EnsureContainerAsync(
+    app.Services.GetRequiredService<BlobContainerClient>());
 
 app.Run();

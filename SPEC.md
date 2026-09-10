@@ -147,9 +147,15 @@ There is also a pseudo-actor, **`System`**, used only by the SLA sweeper. It per
 
 ### Prerequisites for a local build
 
-- **.NET 9 SDK** — *not currently installed on the development machine.* M1 cannot be verified
-  locally until it is. CI installs it via `actions/setup-dotnet`.
+- **.NET SDK** — present as **10.0.401** at `C:Program Filesdotnet`, but **not on `PATH`**, so
+  a bare `dotnet` fails and the toolchain reads as absent until the directory is prepended. The
+  SDK builds this `net9.0` solution; only the .NET 10 runtime is installed, so running the API or
+  the tests needs `DOTNET_ROLL_FORWARD=Major`. CI pins 9.0.x via `actions/setup-dotnet` and is
+  therefore the stricter of the two — a local pass is not a substitute for the gate.
 - Node 20+ (present: v20.20.0), Docker Desktop, `gh` CLI (present: 2.97.0).
+- **Port 5432 is already taken** on this machine by a native PostgreSQL service, which shadows the
+  compose container and fails authentication in a way that looks like a wrong password. Set
+  `POSTGRES_PORT` in `infra/.env` to something free and match it in `ConnectionStrings:Postgres`.
 
 ---
 
@@ -1158,6 +1164,7 @@ nothing. No deployed environment ever reads them, and no other file may follow t
 | `Notifications:Delivery` | `Log` | `Email` is a later swap |
 | `Cors:Origins` | `http://localhost:4200` | |
 | `SEED_PASSWORD` | — | environment variable only; seeding fails without it |
+| `POSTGRES_PORT` | `5432` | `infra/docker-compose.yml` only — the published host port. Override it when something already owns 5432; a native PostgreSQL service shadows the container and fails authentication against the wrong server. `ConnectionStrings:Postgres` must use the same value. |
 
 ### Ports — these four change together
 
