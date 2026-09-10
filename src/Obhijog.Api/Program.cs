@@ -3,7 +3,6 @@ using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
 using Obhijog.Api.Auth;
 using Obhijog.Api.Endpoints;
 using Obhijog.Api.Errors;
@@ -14,6 +13,7 @@ using Obhijog.Infrastructure.Identity;
 using Obhijog.Infrastructure.Options;
 using Obhijog.Infrastructure.Persistence;
 using Obhijog.Infrastructure.Persistence.Seeding;
+using Obhijog.Infrastructure.Reference;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,40 +60,22 @@ builder.Services.AddIdentityCore<User>(options =>
     .AddEntityFrameworkStores<ObhijogDbContext>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-            ?? new JwtOptions();
+    .AddJwtBearer(options => options.MapInboundClaims = false);
 
-        options.MapInboundClaims = false;
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwt.Issuer,
-            ValidAudience = jwt.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwt.SigningKey)),
-
-            // The default five-minute grace makes a 15-minute access token a 20-minute one
-            // and hides expiry bugs in testing.
-            ClockSkew = TimeSpan.Zero,
-
-            // Must match what TokenService emits (§10.2), or every role policy silently
-            // denies: the principal would carry a "role" claim the framework never reads.
-            RoleClaimType = TokenService.RoleClaim,
-            NameClaimType = "name",
-        };
-    });
+// Configured from the validated JwtOptions rather than a second GetSection(...).Get<T>():
+// that overload returns null for a missing section and the ?? fallback it invites is a
+// built-in default signing key, which is the thing §10.2 forbids. Going through IOptions
+// means the ValidateOnStart above has already run.
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((bearer, jwt) =>
+        bearer.TokenValidationParameters = TokenService.CreateValidationParameters(jwt.Value));
 
 builder.Services.AddAuthorizationBuilder().AddObhijogPolicies();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<ReferenceService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<DatabaseSeeder>();

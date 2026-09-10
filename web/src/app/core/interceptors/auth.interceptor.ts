@@ -6,8 +6,8 @@ import {
   HttpRequest,
 } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { BehaviorSubject, Observable, filter, switchMap, take, throwError } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { Observable, throwError } from 'rxjs';
+import { catchError, finalize, map, shareReplay, switchMap } from 'rxjs/operators';
 
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../auth/auth.service';
@@ -18,15 +18,16 @@ import { AuthService } from '../auth/auth.service';
  *
  * The single-in-flight rule matters more than it looks. Without it, ten parallel requests
  * that all 401 produce ten refreshes; the first rotates the token and the other nine
- * present one that is now revoked — which §10.1 treats as reuse and answers by revoking
- * the whole family. Naive per-request refresh does not merely waste calls, it logs the
- * user out.
+ * present one that is now revoked — which §10.2 treats as reuse and answers by revoking the
+ * whole family. Naive per-request refresh does not merely waste calls, it logs the user out.
  */
 
-// Module-scoped rather than per-request: the interceptor function is invoked once per
-// request, so shared state is the only way to serialise them.
-let refreshInFlight = false;
-const refreshed = new BehaviorSubject<string | null>(null);
+// Module-scoped rather than per-request: the interceptor function runs once per request, so
+// shared state is the only way to serialise them. Holding the *observable* rather than a
+// boolean flag is what makes the failure path work — every queued request is subscribed to
+// the same stream, so they all receive the error instead of waiting for a token that is
+// never going to arrive.
+let refreshInFlight: Observable<string> | null = null;
 
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
   const auth = inject(AuthService);
@@ -51,42 +52,45 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
         return throwError(() => error);
       }
 
-      return handle401(request, next, auth);
+      return retryAfterRefresh(request, next, auth);
     }),
   );
 };
 
-function handle401(
+function retryAfterRefresh(
   request: HttpRequest<unknown>,
   next: HttpHandlerFn,
   auth: AuthService,
 ): Observable<HttpEvent<unknown>> {
-  if (refreshInFlight) {
-    // Queue behind the refresh already running, then retry with whatever it produced.
-    return refreshed.pipe(
-      filter((token): token is string => token !== null),
-      take(1),
-      switchMap((token) => next(withBearer(request, token))),
-    );
-  }
+  return refreshOnce(auth).pipe(switchMap((token) => next(withBearer(request, token))));
+}
 
-  refreshInFlight = true;
-  refreshed.next(null);
-
-  return auth.refresh().pipe(
-    switchMap((tokens) => {
-      refreshInFlight = false;
-      refreshed.next(tokens.accessToken);
-      return next(withBearer(request, tokens.accessToken));
-    }),
-    catchError((refreshError: unknown) => {
-      // The refresh itself failed: the session is genuinely over. Waiters must be released
-      // or they hang forever, so the flag is cleared before rethrowing.
-      refreshInFlight = false;
+/**
+ * One refresh per wave of 401s, shared by every caller in that wave.
+ *
+ * `shareReplay` with `refCount: false` means the HTTP call is made once no matter how many
+ * requests queue behind it, and a subscriber arriving a tick late still gets the token
+ * rather than starting a second refresh. `finalize` releases the slot afterwards, so a
+ * later 401 — a genuinely expired session, an hour on — refreshes again instead of
+ * replaying a stale result.
+ */
+function refreshOnce(auth: AuthService): Observable<string> {
+  refreshInFlight ??= auth.refresh().pipe(
+    map((tokens) => tokens.accessToken),
+    catchError((error: unknown) => {
+      // The refresh itself failed: the session is genuinely over. Clearing it here rather
+      // than per waiter means it happens once however many requests were queued, and the
+      // error reaches all of them.
       auth.clearSession();
-      return throwError(() => refreshError);
+      return throwError(() => error);
     }),
+    finalize(() => {
+      refreshInFlight = null;
+    }),
+    shareReplay({ bufferSize: 1, refCount: false }),
   );
+
+  return refreshInFlight;
 }
 
 function withBearer(request: HttpRequest<unknown>, token: string): HttpRequest<unknown> {

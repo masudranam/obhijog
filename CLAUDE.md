@@ -99,12 +99,13 @@ These are the rules an agent is most likely to violate. Everything else is in `.
 
 ## Testing bar — and its ceiling
 
-Four xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
-and role scoping. **Frontend tests: zero** — `ng build` is the frontend gate, and that is decision
-D6, not an oversight.
+Five xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
+role scoping, and token rotation. **Frontend tests: zero** — `ng build` is the frontend gate, and
+that is decision D6, not an oversight.
 
-Do not add coverage beyond those four out of habit. A PR that adds a fifth suite needs a reason in
-its description.
+Do not add coverage beyond those five out of habit. A PR that adds a sixth suite needs a reason in
+its description — token rotation earned its place in M3 because family revocation is an M3
+acceptance criterion whose failure is invisible from outside.
 
 ## Commands
 

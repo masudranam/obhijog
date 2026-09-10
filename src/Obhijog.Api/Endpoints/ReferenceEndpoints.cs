@@ -1,9 +1,5 @@
-using Microsoft.EntityFrameworkCore;
 using Obhijog.Api.Auth;
-using Obhijog.Domain.Exceptions;
-using Obhijog.Domain.Users;
-using Obhijog.Infrastructure.Auth;
-using Obhijog.Infrastructure.Persistence;
+using Obhijog.Infrastructure.Reference;
 
 namespace Obhijog.Api.Endpoints;
 
@@ -17,15 +13,6 @@ namespace Obhijog.Api.Endpoints;
 /// </summary>
 public static class ReferenceEndpoints
 {
-    public record DepartmentResponse(Guid Id, string Code, string Name, bool IsActive);
-
-    public record StaffResponse(
-        Guid Id,
-        string Email,
-        string FullName,
-        string Role,
-        bool IsActive);
-
     public static RouteGroupBuilder MapReferenceEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/departments").WithTags("reference");
@@ -37,48 +24,18 @@ public static class ReferenceEndpoints
     }
 
     private static async Task<IResult> ListDepartmentsAsync(
-        ObhijogDbContext db,
-        CancellationToken cancellationToken)
-    {
-        var departments = await db.Departments
-            .AsNoTracking()
-            .OrderBy(d => d.Name)
-            .Select(d => new DepartmentResponse(d.Id, d.Code, d.Name, d.IsActive))
-            .ToListAsync(cancellationToken);
-
-        return Results.Ok(departments);
-    }
+        ReferenceService reference,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await reference.ListDepartmentsAsync(cancellationToken));
 
     /// <summary>
-    /// A Dept Admin's own department only.
-    ///
-    /// Another department's id is <c>404</c>, not <c>403</c> — §9.2's invariant applies to
-    /// reference data exactly as it does to complaints, because a <c>403</c> would confirm
-    /// the department exists and that the caller simply lacks rights to it.
+    /// A Dept Admin's own department only. The service throws <c>NotFoundException</c> for
+    /// any other, which the one exception handler maps to <c>404</c> — §9.2. The endpoint
+    /// does not get to choose between <c>404</c> and <c>403</c>.
     /// </summary>
     private static async Task<IResult> ListStaffAsync(
         Guid id,
-        ObhijogDbContext db,
-        ICurrentUser currentUser,
-        CancellationToken cancellationToken)
-    {
-        if (currentUser.DepartmentId != id)
-        {
-            throw new NotFoundException($"Department '{id}' was not found.");
-        }
-
-        var staff = await db.Users
-            .AsNoTracking()
-            .Where(u => u.DepartmentId == id && u.Role != UserRole.Citizen)
-            .OrderBy(u => u.FullName)
-            .Select(u => new StaffResponse(
-                u.Id,
-                u.Email ?? string.Empty,
-                u.FullName,
-                u.Role.ToString(),
-                u.IsActive))
-            .ToListAsync(cancellationToken);
-
-        return Results.Ok(staff);
-    }
+        ReferenceService reference,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await reference.ListStaffAsync(id, cancellationToken));
 }

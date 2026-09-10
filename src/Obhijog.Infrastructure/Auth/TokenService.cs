@@ -37,6 +37,38 @@ public class TokenService(
     /// </summary>
     public const string RoleClaim = "role";
 
+    /// <summary>The display-name claim, kept short for the same reason as <see cref="RoleClaim"/>.</summary>
+    public const string NameClaim = "name";
+
+    /// <summary>
+    /// The parameters a token issued by <c>CreateAccessToken</c> must satisfy.
+    ///
+    /// Issuing and validating share this one method deliberately. They are the two halves
+    /// of the same contract, and the half that fails silently is validation: a
+    /// <see cref="TokenValidationParameters.RoleClaimType"/> that disagrees with
+    /// <see cref="RoleClaim"/> authenticates every caller and then denies every role
+    /// policy, which reads as a permissions bug and is a wiring one.
+    /// </summary>
+    public static TokenValidationParameters CreateValidationParameters(Options.JwtOptions jwt) =>
+        new()
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwt.Issuer,
+            ValidAudience = jwt.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                System.Text.Encoding.UTF8.GetBytes(jwt.SigningKey)),
+
+            // The default five-minute grace makes a 15-minute access token a 20-minute one
+            // and hides expiry bugs in testing.
+            ClockSkew = TimeSpan.Zero,
+
+            RoleClaimType = RoleClaim,
+            NameClaimType = NameClaim,
+        };
+
     public async Task<TokenPair> IssueAsync(User user, CancellationToken cancellationToken = default)
     {
         var now = timeProvider.GetUtcNow();
