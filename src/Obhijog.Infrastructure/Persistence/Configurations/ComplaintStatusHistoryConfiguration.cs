@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Obhijog.Domain.Complaints;
+using Obhijog.Infrastructure.Identity;
 
 namespace Obhijog.Infrastructure.Persistence.Configurations;
 
@@ -18,6 +19,11 @@ public class ComplaintStatusHistoryConfiguration : IEntityTypeConfiguration<Comp
         builder.Property(h => h.IsSystem).IsRequired();
 
         builder.HasIndex(h => new { h.ComplaintId, h.ChangedAt });
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(h => h.ChangedById)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(h => h.Complaint)
             .WithMany(c => c.History)

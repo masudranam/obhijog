@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Obhijog.Domain.Complaints;
+using Obhijog.Infrastructure.Identity;
 
 namespace Obhijog.Infrastructure.Persistence.Configurations;
 
@@ -61,6 +62,20 @@ public class ComplaintConfiguration : IEntityTypeConfiguration<Complaint>
         // (SPEC §8.4, §17).
         builder.HasIndex(c => new { c.Status, c.SlaDueAt })
             .HasFilter(OpenStatusesFilter);
+
+        // §8.4 names both of these FK → User. There is no navigation property, because
+        // Complaint lives in Domain and User does not (D13) — but this configuration class
+        // is in Infrastructure, where User is visible, so the constraint costs nothing.
+        // Restrict, not Cascade: deleting a user must never delete their complaints.
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(c => c.CitizenId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(c => c.AssignedStaffId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(c => c.Category)
             .WithMany()

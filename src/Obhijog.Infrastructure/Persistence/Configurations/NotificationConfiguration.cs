@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Obhijog.Domain.Notifications;
+using Obhijog.Infrastructure.Identity;
 
 namespace Obhijog.Infrastructure.Persistence.Configurations;
 
@@ -16,6 +17,11 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
         builder.Property(n => n.Body).IsRequired().HasMaxLength(2000);
         builder.Property(n => n.LastError).HasMaxLength(500);
         builder.Property(n => n.Attempts).IsRequired().HasDefaultValue(0);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(n => n.RecipientId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(n => new { n.RecipientId, n.CreatedAt })
             .IsDescending(false, true);

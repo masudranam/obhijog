@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Obhijog.Domain.Complaints;
+using Obhijog.Infrastructure.Identity;
 
 namespace Obhijog.Infrastructure.Persistence.Configurations;
 
@@ -19,6 +20,11 @@ public class EscalationEventConfiguration : IEntityTypeConfiguration<EscalationE
         // when two sweeps overlap — the case the sweeper's WHERE clause cannot see (§11.3).
         // Never remove this because the WHERE clause "already covers it".
         builder.HasIndex(e => new { e.ComplaintId, e.ReopenCount, e.Level }).IsUnique();
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(e => e.NotifiedUserId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(e => e.Complaint)
             .WithMany(c => c.Escalations)

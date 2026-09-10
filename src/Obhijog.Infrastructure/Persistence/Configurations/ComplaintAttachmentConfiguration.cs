@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Obhijog.Domain.Complaints;
+using Obhijog.Infrastructure.Identity;
 
 namespace Obhijog.Infrastructure.Persistence.Configurations;
 
@@ -18,6 +19,11 @@ public class ComplaintAttachmentConfiguration : IEntityTypeConfiguration<Complai
 
         builder.HasIndex(a => a.BlobName).IsUnique();
         builder.HasIndex(a => new { a.ComplaintId, a.UploadedAt });
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(a => a.UploadedById)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(a => a.Complaint)
             .WithMany(c => c.Attachments)

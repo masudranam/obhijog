@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Obhijog.Domain.Complaints;
+using Obhijog.Infrastructure.Identity;
 
 namespace Obhijog.Infrastructure.Persistence.Configurations;
 
@@ -15,6 +16,11 @@ public class ComplaintCommentConfiguration : IEntityTypeConfiguration<ComplaintC
         builder.Property(c => c.IsInternal).IsRequired().HasDefaultValue(false);
 
         builder.HasIndex(c => new { c.ComplaintId, c.CreatedAt });
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(c => c.AuthorId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(c => c.Complaint)
             .WithMany(x => x.Comments)
