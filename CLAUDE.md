@@ -94,8 +94,9 @@ These are the rules an agent is most likely to violate. Everything else is in `.
     Report a failure as a failure. "Not verified" is an acceptable report; "passing" when it was
     never run is not.
 
-13. **Commit only when asked**, with a Conventional Commit subject. `main` is hook-protected —
-    branch first, merge through a PR.
+13. **Commit as the work completes**, with a Conventional Commit subject — no need to ask first.
+    `main` is hook-protected, so branch first and merge through a PR. The PR is where the work gets
+    checked; a commit left unmade on a feature branch checks nothing.
 
 ## Testing bar — and its ceiling
 
