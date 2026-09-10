@@ -31,11 +31,12 @@ Sections you will need constantly:
 
 ## Where we are
 
-The repo currently contains `SPEC.md`, this file, `README.md`, `docs/adr/`, and the `.claude/` and
-`.github/` harnesses. **Nothing is scaffolded yet — M1 (issue #2) is next.** The roadmap table in
-§20 is the live progress tracker: `☐` not started, `◐` in progress, `☑` done with its DoD
-actually passing. Read it before starting anything; tick the box in the milestone's own PR, only
-once the DoD really passes.
+**M1 is done; M2 (issue #3) is next.** The solution, the four projects, the Angular workspace and
+`infra/docker-compose.yml` all exist. There is no data model yet — `ObhijogDbContext` holds no
+entities and no migration has been written, so `/health/ready` checks a reachable but empty
+database. The roadmap table in §20 is the live progress tracker: `☐` not started, `◐` in progress,
+`☑` done with its DoD actually passing. Read it before starting anything; tick the box in the
+milestone's own PR, only once the DoD really passes.
 
 ## Non-negotiables
 
@@ -142,9 +143,14 @@ Prefer reading `gh pr checks` over rebuilding it locally.
 
 ## Environment notes
 
-- **The .NET 9 SDK is not installed on this machine.** `dotnet` is on neither PATH. Until it is
-  installed, M1 cannot be verified locally — CI is the only gate. Say so rather than reporting a
-  build as passing.
+- **The .NET SDK is installed but not on `PATH`.** It lives at `C:Program Filesdotnet`
+  (10.0.401). Prepend it — `export PATH="/c/Program Files/dotnet:$PATH"` in Git Bash — and the
+  full gate runs locally. Only the .NET 10 runtime is present, so `dotnet run` and `dotnet test`
+  need `DOTNET_ROLL_FORWARD=Major`; `build` and `format` do not. CI pins 9.0.x, so it remains
+  the authority: a local pass is evidence, not a verdict.
+- **Port 5432 is occupied** by a native PostgreSQL service, which shadows the compose container.
+  Set `POSTGRES_PORT` in `infra/.env` and match it in the connection string, or authentication
+  fails against the wrong server.
 - **PowerShell 5.1 is the primary shell** and has no `&&` or `||`. Use `;` or
   `cmd-a; if ($?) { cmd-b }`. Do not redirect a native exe's stderr with `2>&1` — 5.1 wraps each
   line in an ErrorRecord and reports failure even on exit 0. Git Bash is available for POSIX

@@ -147,9 +147,15 @@ There is also a pseudo-actor, **`System`**, used only by the SLA sweeper. It per
 
 ### Prerequisites for a local build
 
-- **.NET 9 SDK** — *not currently installed on the development machine.* M1 cannot be verified
-  locally until it is. CI installs it via `actions/setup-dotnet`.
+- **.NET SDK** — present as **10.0.401** at `C:Program Filesdotnet`, but **not on `PATH`**, so
+  a bare `dotnet` fails and the toolchain reads as absent until the directory is prepended. The
+  SDK builds this `net9.0` solution; only the .NET 10 runtime is installed, so running the API or
+  the tests needs `DOTNET_ROLL_FORWARD=Major`. CI pins 9.0.x via `actions/setup-dotnet` and is
+  therefore the stricter of the two — a local pass is not a substitute for the gate.
 - Node 20+ (present: v20.20.0), Docker Desktop, `gh` CLI (present: 2.97.0).
+- **Port 5432 is already taken** on this machine by a native PostgreSQL service, which shadows the
+  compose container and fails authentication in a way that looks like a wrong password. Set
+  `POSTGRES_PORT` in `infra/.env` to something free and match it in `ConnectionStrings:Postgres`.
 
 ---
 
@@ -1011,7 +1017,10 @@ Conventions:
 Minimal APIs, one file per feature under `src/Obhijog.Api/Endpoints/`: `AuthEndpoints`,
 `ReferenceEndpoints`, `UserEndpoints`, `ComplaintEndpoints`, `TransitionEndpoints`,
 `CommentEndpoints`, `AttachmentEndpoints`, `DashboardEndpoints`, `SlaEndpoints`, `HealthEndpoints`.
-Each exposes `static RouteGroupBuilder Map<X>(this IEndpointRouteBuilder)`.
+Each exposes `static RouteGroupBuilder Map<X>(this IEndpointRouteBuilder)`, with one
+exception: `HealthEndpoints` maps `/health` and `/health/ready` at the root rather than under
+`/api/v1` — an orchestrator probe should not have to be reconfigured the day the API version
+changes — so it is not a route group and returns `IEndpointRouteBuilder`.
 
 An endpoint does three things only: bind and validate the request, call one service, map the result
 to a status code. **No EF query lives in an endpoint file.**
@@ -1155,6 +1164,7 @@ nothing. No deployed environment ever reads them, and no other file may follow t
 | `Notifications:Delivery` | `Log` | `Email` is a later swap |
 | `Cors:Origins` | `http://localhost:4200` | |
 | `SEED_PASSWORD` | — | environment variable only; seeding fails without it |
+| `POSTGRES_PORT` | `5432` | `infra/docker-compose.yml` only — the published host port. Override it when something already owns 5432; a native PostgreSQL service shadows the container and fails authentication against the wrong server. `ConnectionStrings:Postgres` must use the same value. |
 
 ### Ports — these four change together
 
@@ -1181,7 +1191,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 
 | M | Issue | Milestone | Features | Depends on | Definition of done | State |
 |---|---|---|---|---|---|---|
-| M1 | #2 | Solution skeleton, CI, health | F1 | — | Four projects build with `-warnaserror`; the Angular shell builds; `docker compose up` gives PostgreSQL 17 + Azurite; `/health` and `/health/ready` return 200; the CI gate is green on the PR | ☐ |
+| M1 | #2 | Solution skeleton, CI, health | F1 | — | Four projects build with `-warnaserror`; the Angular shell builds; `docker compose up` gives PostgreSQL 17 + Azurite; `/health` and `/health/ready` return 200; the CI gate is green on the PR | ☑ |
 | M2 | #3 | Domain model, migration, seed | F2 | M1 | `dotnet ef database update` from empty succeeds; every §8 constraint and index present; the seeder is idempotent; seeding without `SEED_PASSWORD` fails cleanly | ☐ |
 | M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☐ |
 | M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☐ |
