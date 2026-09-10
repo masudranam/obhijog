@@ -1052,6 +1052,7 @@ Business logic lives in `Infrastructure` services over `Domain` types:
 | `NotificationService` | writes `Notification` rows; delegates delivery to `INotificationSender` |
 | `DashboardService` | the F13 aggregates |
 | `TokenService` | JWT issuance, refresh rotation, family revocation |
+| `ReferenceService` | department and category reads; scopes the staff list to the caller's own department |
 
 ### 16.3 Domain layer
 
@@ -1109,11 +1110,17 @@ adds a fifth suite needs a reason in its description.
 | SLA arithmetic | `tests/Obhijog.Tests/SlaPolicyTests.cs` | `DueAt`, `WarnAt`, `Level2At`, `ElapsedPercent`; the recategorize recompute; the reopen reset — all through a fake `TimeProvider` |
 | Sweep idempotency | `tests/Obhijog.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days |
 | Role scoping | `tests/Obhijog.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
+| Token rotation | `tests/Obhijog.Tests/RefreshTokenRotationTests.cs` | rotation revokes the presented token; **reuse of a revoked token revokes the whole family**; an unknown token revokes nothing; expiry; logout revokes one device; a deactivated account cannot refresh; the claims a token carries, validated through the API's own parameters |
 
 - Sweep and scope tests run against **EF Core on a real PostgreSQL** where one is reachable, and are
   **skipped with a visible message** otherwise — never silently reported as passing. They must not
   use the EF in-memory provider: it has no transactions, no `xmin`, no unique-index enforcement and
   no `ILIKE`, so it would silently pass the exact cases §11.3 exists to guarantee.
+- **Token rotation was the fifth suite, added in M3 with the reason §18 requires.** The M3
+  Definition of Done names family revocation as an acceptance criterion, and this table
+  predates any token existing. Its one failure mode that matters — a stolen refresh token
+  that keeps working — is invisible from outside, and deleting the `RevokeFamilyAsync` call
+  left every other test in the repository green. The bar is now five suites, not six.
 - **Frontend: zero tests.** `ng build` is the gate. This is decision D6, not an omission.
 - No test spins up Azurite; `IAttachmentStore` is doubled.
 
@@ -1207,7 +1214,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 |---|---|---|---|---|---|---|
 | M1 | #2 | Solution skeleton, CI, health | F1 | — | Four projects build with `-warnaserror`; the Angular shell builds; `docker compose up` gives PostgreSQL 17 + Azurite; `/health` and `/health/ready` return 200; the CI gate is green on the PR | ☑ |
 | M2 | #3 | Domain model, migration, seed | F2 | M1 | `dotnet ef database update` from empty succeeds; every §8 constraint and index present; the seeder is idempotent; seeding without `SEED_PASSWORD` fails cleanly | ☑ |
-| M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☐ |
+| M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☑ |
 | M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☐ |
 | M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☐ |
 | M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☐ |

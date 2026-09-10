@@ -1,0 +1,13 @@
+<mat-card appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>My complaints</mat-card-title>
+    <mat-card-subtitle>Citizen</mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content>
+    @if (me(); as user) {
+      <p>Signed in as <strong>{{ user.fullName }}</strong> ({{ user.role }}).</p>
+    }
+    <p>Submitting and tracking complaints arrives in M4.</p>
+  </mat-card-content>
+</mat-card>

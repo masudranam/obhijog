@@ -31,10 +31,11 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1 and M2 are done; M3 (issue #4) is next.** The solution, the Angular workspace, the compose
-stack, the full §8 data model, the InitialSchema migration and an idempotent seeder all exist.
-There is no authentication yet — Identity's stores and tables are in place but nothing issues or
-validates a token, so no endpoint is protected. The roadmap table in §20 is the live progress
+**M1–M3 are done; M4 (issue #5) is next.** The solution, the Angular workspace, the compose
+stack, the full §8 data model, the InitialSchema migration and an idempotent seeder all exist,
+and authentication works end to end: login, register, rotating refresh tokens with family
+revocation, the four named policies, and a login screen that routes each role to its own shell.
+No complaint exists yet — that is M4. The roadmap table in §20 is the live progress
 tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
 starting anything; tick the box in the milestone's own PR, only once the DoD really passes.
 
@@ -98,12 +99,13 @@ These are the rules an agent is most likely to violate. Everything else is in `.
 
 ## Testing bar — and its ceiling
 
-Four xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
-and role scoping. **Frontend tests: zero** — `ng build` is the frontend gate, and that is decision
-D6, not an oversight.
+Five xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
+role scoping, and token rotation. **Frontend tests: zero** — `ng build` is the frontend gate, and
+that is decision D6, not an oversight.
 
-Do not add coverage beyond those four out of habit. A PR that adds a fifth suite needs a reason in
-its description.
+Do not add coverage beyond those five out of habit. A PR that adds a sixth suite needs a reason in
+its description — token rotation earned its place in M3 because family revocation is an M3
+acceptance criterion whose failure is invisible from outside.
 
 ## Commands
 

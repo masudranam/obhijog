@@ -1,0 +1,13 @@
+<mat-card appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>Department inbox</mat-card-title>
+    <mat-card-subtitle>Dept Admin</mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content>
+    @if (me(); as user) {
+      <p>Signed in as <strong>{{ user.fullName }}</strong> ({{ user.role }}).</p>
+    }
+    <p>Triage, assignment and the dashboard arrive in M6 and M8.</p>
+  </mat-card-content>
+</mat-card>

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Obhijog.Domain.Auth;
 using Obhijog.Domain.Complaints;
 using Obhijog.Domain.Departments;
 using Obhijog.Domain.Notifications;
@@ -38,6 +39,8 @@ public class ObhijogDbContext(DbContextOptions<ObhijogDbContext> options)
     public DbSet<EscalationEvent> EscalationEvents => Set<EscalationEvent>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

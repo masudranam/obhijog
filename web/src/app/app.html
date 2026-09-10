@@ -1,6 +1,15 @@
 <mat-toolbar color="primary">
-  <span class="brand">{{ title() }}</span>
+  <a routerLink="/" class="brand-link"><span class="brand">{{ title() }}</span></a>
   <span class="brand-sub">Municipal Complaint &amp; SLA Tracking</span>
+
+  <span class="spacer"></span>
+
+  @if (auth.me(); as user) {
+    <span class="who">{{ user.fullName }} · {{ user.role }}</span>
+    <button matButton (click)="signOut()">Sign out</button>
+  } @else {
+    <a matButton routerLink="/login">Sign in</a>
+  }
 </mat-toolbar>
 
 <main class="content">
