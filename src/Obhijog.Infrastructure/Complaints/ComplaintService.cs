@@ -45,6 +45,19 @@ public class ComplaintService(
                 "The category does not exist or is no longer accepting new complaints.");
         }
 
+        // A coordinate is not optional, and `decimal` has no absent value: an omitted pair
+        // binds to 0,0 — a real point in the Gulf of Guinea that a crew would be dispatched
+        // to. Rejecting the exact origin costs one unreachable location and prevents a
+        // whole class of silently-wrong complaints.
+        if (request is { Latitude: 0, Longitude: 0 })
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["latitude"] = ["A location is required."],
+                ["longitude"] = ["A location is required."],
+            });
+        }
+
         var now = timeProvider.GetUtcNow();
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -120,11 +133,26 @@ public class ComplaintService(
         ComplaintListQuery query,
         CancellationToken cancellationToken = default)
     {
-        var page = Math.Max(1, query.Page);
-        var pageSize = Math.Clamp(
-            query.PageSize <= 0 ? ComplaintListQuery.DefaultPageSize : query.PageSize,
-            1,
-            ComplaintListQuery.MaxPageSize);
+        // §13.1: over the max is a 400, **not** a silent clamp. A caller who asked for 500
+        // rows and quietly received 100 would page through the rest wrongly and never know
+        // — the clamp is the more hostile of the two behaviours, not the friendlier one.
+        if (query.PageSize > ComplaintListQuery.MaxPageSize)
+        {
+            throw new ValidationException(
+                "pageSize",
+                $"pageSize must be at most {ComplaintListQuery.MaxPageSize}.");
+        }
+
+        if (query.Page < 1)
+        {
+            throw new ValidationException("page", "page is 1-based and must be at least 1.");
+        }
+
+        var page = query.Page;
+
+        // An absent or zero pageSize means "use the default", which is a different thing
+        // from asking for too many.
+        var pageSize = query.PageSize <= 0 ? ComplaintListQuery.DefaultPageSize : query.PageSize;
 
         var scoped = ComplaintQueryScope.For(db.Complaints.AsNoTracking(), currentUser);
         scoped = ComplaintQueryScope.WithRequestedDepartment(
@@ -258,7 +286,11 @@ public class ComplaintService(
         string referenceNumber,
         CancellationToken cancellationToken = default)
     {
+        // Truncated before it can reach a ProblemDetails `detail` or a log line: the route
+        // value is caller-controlled and unbounded, and this is the one endpoint an
+        // unauthenticated stranger can call.
         var normalized = referenceNumber.Trim().ToUpperInvariant();
+        var forMessage = normalized.Length > 32 ? normalized[..32] + "…" : normalized;
 
         var complaint = await db.Complaints
             .AsNoTracking()
@@ -282,7 +314,7 @@ public class ComplaintService(
             .SingleOrDefaultAsync(cancellationToken);
 
         return complaint
-            ?? throw new NotFoundException($"No complaint matches reference '{referenceNumber}'.");
+            ?? throw new NotFoundException($"No complaint matches reference '{forMessage}'.");
     }
 
     // ---------------------------------------------------------------------------------

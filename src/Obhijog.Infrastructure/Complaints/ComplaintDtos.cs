@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using Obhijog.Domain.Complaints;
 
 namespace Obhijog.Infrastructure.Complaints;
@@ -112,8 +113,19 @@ public record PublicComplaint(
 /// <summary>Only when it moved and what it moved to. No actor, no note.</summary>
 public record PublicHistoryEntry(DateTimeOffset ChangedAt, ComplaintStatus ToStatus);
 
-/// <summary>SPEC.md §13.1 — no response envelope; a page is exactly these four fields.</summary>
-public record Page<T>(IReadOnlyList<T> Items, int PageNumber, int PageSize, int Total);
+/// <summary>
+/// SPEC.md §13.1 — no response envelope; a page is exactly these four fields, and §13.1
+/// names the second one <c>page</c>.
+///
+/// The C# property cannot be called <c>Page</c> — a member may not share its enclosing
+/// type's name — so the wire name is pinned explicitly rather than left to differ quietly
+/// from the spec.
+/// </summary>
+public record Page<T>(
+    IReadOnlyList<T> Items,
+    [property: JsonPropertyName("page")] int PageNumber,
+    int PageSize,
+    int Total);
 
 /// <summary>
 /// The §13.3 query surface. Bound from the query string; every field is optional and the

@@ -81,7 +81,7 @@
           <mat-paginator
             [length]="page.total"
             [pageSize]="page.pageSize"
-            [pageIndex]="page.pageNumber - 1"
+            [pageIndex]="page.page - 1"
             [pageSizeOptions]="[10, 20, 50]"
             (page)="onPage($event)"
           />

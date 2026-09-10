@@ -62,7 +62,7 @@ export type ComplaintPriority = 'Low' | 'Normal' | 'High' | 'Critical';
 /** SPEC.md §13.1 — a page is these four fields; there is no envelope to unwrap. */
 export interface Page<T> {
   items: T[];
-  pageNumber: number;
+  page: number;
   pageSize: number;
   total: number;
 }
