@@ -143,7 +143,7 @@ Prefer reading `gh pr checks` over rebuilding it locally.
 
 ## Environment notes
 
-- **The .NET SDK is installed but not on `PATH`.** It lives at `C:Program Filesdotnet`
+- **The .NET SDK is installed but not on `PATH`.** It lives at `C:\Program Files\dotnet`
   (10.0.401). Prepend it — `export PATH="/c/Program Files/dotnet:$PATH"` in Git Bash — and the
   full gate runs locally. Only the .NET 10 runtime is present, so `dotnet run` and `dotnet test`
   need `DOTNET_ROLL_FORWARD=Major`; `build` and `format` do not. CI pins 9.0.x, so it remains

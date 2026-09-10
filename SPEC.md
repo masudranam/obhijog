@@ -147,7 +147,7 @@ There is also a pseudo-actor, **`System`**, used only by the SLA sweeper. It per
 
 ### Prerequisites for a local build
 
-- **.NET SDK** — present as **10.0.401** at `C:Program Filesdotnet`, but **not on `PATH`**, so
+- **.NET SDK** — present as **10.0.401** at `C:\Program Files\dotnet`, but **not on `PATH`**, so
   a bare `dotnet` fails and the toolchain reads as absent until the directory is prepended. The
   SDK builds this `net9.0` solution; only the .NET 10 runtime is installed, so running the API or
   the tests needs `DOTNET_ROLL_FORWARD=Major`. CI pins 9.0.x via `actions/setup-dotnet` and is
