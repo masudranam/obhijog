@@ -139,7 +139,9 @@ Both the reviewer and CI must be green:
 gh pr checks <n>
 ```
 
-**On `PASS` with green CI**, from the feature branch:
+**On `PASS` with green CI, merge. Do not ask first.** The verdict and the green checks *are* the
+approval — pausing to ask for it again is the thing this loop exists to remove. From the feature
+branch:
 
 ```
 node .claude/bin/record-verdict.mjs --pr <n> --verdict PASS --summary "<one line>"
@@ -155,6 +157,13 @@ again. **Two rounds maximum** — after a second failure, stop and report to the
 reviewer's findings.
 
 **On `BLOCKED`:** stop and report immediately. Do not merge.
+
+**The only things that stop a merge are the four in SPEC §21.7** — red CI, a test that cannot fail,
+a violated SPEC §9 invariant, and a HIGH security finding. An advisory finding does not, however
+tempting: file it as an issue and merge. Neither does an unanswered question about a later
+milestone. If a reviewer's advisory makes something in the PR body or SPEC.md *false*, correct that
+before merging — a merge record naming a test that does not exist is worse than no record — but
+correcting it is not a reason to ask, either.
 
 ## 9 · Advance
 

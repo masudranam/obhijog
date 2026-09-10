@@ -94,8 +94,9 @@ These are the rules an agent is most likely to violate. Everything else is in `.
     Report a failure as a failure. "Not verified" is an acceptable report; "passing" when it was
     never run is not.
 
-13. **Commit only when asked**, with a Conventional Commit subject. `main` is hook-protected —
-    branch first, merge through a PR.
+13. **Commit as the work completes**, with a Conventional Commit subject — no need to ask first.
+    `main` is hook-protected, so branch first and merge through a PR. The PR is where the work gets
+    checked; a commit left unmade on a feature branch checks nothing.
 
 ## Testing bar — and its ceiling
 
@@ -203,3 +204,7 @@ Two hooks enforce the parts that matter: `guard-git.mjs` blocks commits on `main
 
 **Only four things may block a merge:** red CI, a test that cannot fail, a violation of a SPEC §9
 invariant, and a HIGH security finding. Everything else is advisory and becomes a follow-up issue.
+
+**On a `PASS` with green CI, merge — do not ask.** The reviewer's verdict and the green checks are
+the approval; asking for it a second time is the friction this loop exists to remove. Report the
+merge afterwards, with what was filed as follow-ups.
