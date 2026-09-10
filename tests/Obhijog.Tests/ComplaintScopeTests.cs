@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Obhijog.Api.Auth;
 using Obhijog.Api.Endpoints;
+using Obhijog.Domain.Complaints;
 using Obhijog.Domain.Users;
 using Obhijog.Infrastructure.Auth;
+using Obhijog.Infrastructure.Complaints;
 using Obhijog.Infrastructure.Reference;
 using Xunit;
 
@@ -222,6 +224,130 @@ public class ComplaintScopeTests
             authenticationType: "Test",
             nameType: TokenService.NameClaim,
             roleType: TokenService.RoleClaim));
+
+    // -----------------------------------------------------------------------------------
+    // The scoping seam itself (§9.3, §18's role-scoping cases)
+    //
+    // ComplaintQueryScope.For is a filter over IQueryable, so LINQ-to-objects exercises it
+    // exactly as EF will translate it — no database, no provider. The M4 endpoints add
+    // nothing on top: what these tests prove about the seam is true of every read.
+    // -----------------------------------------------------------------------------------
+
+    private static readonly Guid Water = Guid.CreateVersion7();
+    private static readonly Guid Electrical = Guid.CreateVersion7();
+    private static readonly Guid Citizen1 = Guid.CreateVersion7();
+    private static readonly Guid Citizen2 = Guid.CreateVersion7();
+
+    private static IQueryable<Complaint> Complaints() => new[]
+    {
+        Complaint(Citizen1, Water, "citizen1-water"),
+        Complaint(Citizen2, Water, "citizen2-water"),
+        Complaint(Citizen1, Electrical, "citizen1-electrical"),
+    }.AsQueryable();
+
+    /// <summary>
+    /// §9.2 and §9.4's first case: a Citizen sees their own complaints and nobody else's.
+    /// The filter returns nothing for another citizen's row, which is what turns into a
+    /// <c>404</c> — never a <c>403</c>.
+    /// </summary>
+    [Fact]
+    public void ACitizenSeesOnlyTheirOwnComplaints()
+    {
+        var scoped = ComplaintQueryScope
+            .For(Complaints(), For(UserRole.Citizen, departmentId: null, id: Citizen1))
+            .Select(c => c.Title)
+            .ToList();
+
+        Assert.Equal(["citizen1-water", "citizen1-electrical"], scoped);
+    }
+
+    /// <summary>Staff and Dept Admins see their own department, across all citizens.</summary>
+    [Theory]
+    [InlineData(UserRole.Staff)]
+    [InlineData(UserRole.DeptAdmin)]
+    public void StaffSeeTheirOwnDepartmentOnly(UserRole role)
+    {
+        var scoped = ComplaintQueryScope
+            .For(Complaints(), For(role, Water, Guid.CreateVersion7()))
+            .Select(c => c.Title)
+            .ToList();
+
+        Assert.Equal(["citizen1-water", "citizen2-water"], scoped);
+    }
+
+    /// <summary>
+    /// A Staff or DeptAdmin token with no <c>dept</c> claim must match nothing. Without the
+    /// explicit guard the comparison would be <c>DepartmentId == null</c>, which is a query
+    /// that happens to return no rows today and would silently start returning them the day
+    /// a nullable department appears.
+    /// </summary>
+    [Fact]
+    public void StaffWithNoDepartmentSeeNothing()
+    {
+        var scoped = ComplaintQueryScope.For(
+            Complaints(),
+            For(UserRole.Staff, departmentId: null, id: Guid.CreateVersion7()));
+
+        Assert.Empty(scoped);
+    }
+
+    [Fact]
+    public void AnAnonymousCallerSeesNothing()
+    {
+        var anonymous = new HttpContextCurrentUser(
+            Accessor(new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity()) }));
+
+        Assert.Empty(ComplaintQueryScope.For(Complaints(), anonymous));
+    }
+
+    /// <summary>
+    /// §9.3, §13.3: a <c>departmentId</c> query parameter can narrow but never widen. A
+    /// Water admin asking for Electrical keeps seeing Water.
+    /// </summary>
+    [Fact]
+    public void ARequestedDepartmentNeverWidensScope()
+    {
+        var admin = For(UserRole.DeptAdmin, Water, Guid.CreateVersion7());
+
+        var scoped = ComplaintQueryScope.WithRequestedDepartment(
+                ComplaintQueryScope.For(Complaints(), admin),
+                admin,
+                Electrical)
+            .Select(c => c.Title)
+            .ToList();
+
+        Assert.Equal(["citizen1-water", "citizen2-water"], scoped);
+    }
+
+    private static Complaint Complaint(Guid citizenId, Guid departmentId, string title) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        ReferenceNumber = $"MC-2026-{Random.Shared.Next(1, 999999):D6}",
+        CitizenId = citizenId,
+        DepartmentId = departmentId,
+        CategoryId = Guid.CreateVersion7(),
+        Title = title,
+        Description = "irrelevant to scoping",
+    };
+
+    private static HttpContextCurrentUser For(UserRole role, Guid? departmentId, Guid id)
+    {
+        var claims = new List<Claim>
+        {
+            new("sub", id.ToString()),
+            new(TokenService.RoleClaim, role.ToString()),
+        };
+
+        if (departmentId is { } department)
+        {
+            claims.Add(new Claim(TokenService.DepartmentClaim, department.ToString()));
+        }
+
+        return new HttpContextCurrentUser(Accessor(new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "Test")),
+        }));
+    }
 
     private static HttpContextCurrentUser For(UserRole role, Guid? departmentId)
     {

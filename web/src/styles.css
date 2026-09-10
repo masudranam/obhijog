@@ -1,4 +1,15 @@
 /* You can add global styles to this file, and also import other style files */
 
+/* Leaflet's stylesheet, imported once globally rather than per component (SPEC.md §15).
+   A component-scoped import would be rewritten by Angular's view encapsulation and the
+   map would render as a stack of unpositioned tiles. */
+@import 'leaflet/dist/leaflet.css';
+
 html, body { height: 100%; }
 body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+
+/* The pin is an inline SVG in a div icon; Leaflet gives div icons a white box by default. */
+.obhijog-pin {
+  background: none;
+  border: none;
+}

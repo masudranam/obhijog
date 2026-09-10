@@ -1,15 +1,63 @@
-<mat-card appearance="outlined">
-  <mat-card-header>
-    <mat-card-title>Shell is up</mat-card-title>
-    <mat-card-subtitle>M1 — solution skeleton, CI and health</mat-card-subtitle>
-  </mat-card-header>
+<div class="hero">
+  <h1>Something broken in your neighbourhood?</h1>
+  <p class="lede">
+    Report a pothole, a burst main, a dark street light or an uncollected bin. Every report goes
+    to the responsible department with a response deadline attached, and you can follow it the
+    whole way.
+  </p>
 
-  <mat-card-content>
-    <p>
-      The Angular workspace, Material theme and router are wired. Feature routes arrive
-      from M3 onward: authentication first, then submission, attachments, the state
-      machine and the SLA engine.
-    </p>
-    <p class="api">API base URL: <code>{{ apiBaseUrl }}</code></p>
-  </mat-card-content>
-</mat-card>
+  <div class="actions">
+    @if (auth.role() === 'Citizen') {
+      <a mat-flat-button color="primary" routerLink="/my/new">
+        <mat-icon>add</mat-icon>
+        Report a problem
+      </a>
+      <a mat-stroked-button routerLink="/my">My complaints</a>
+    } @else if (!auth.isAuthenticated()) {
+      <a mat-flat-button color="primary" routerLink="/register">
+        <mat-icon>add</mat-icon>
+        Report a problem
+      </a>
+      <a mat-stroked-button routerLink="/login">Sign in</a>
+    }
+    <a mat-stroked-button routerLink="/track">
+      <mat-icon>search</mat-icon>
+      Track by reference
+    </a>
+  </div>
+</div>
+
+<div class="cards">
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <mat-icon>schedule</mat-icon>
+      <h2>A deadline, not a black hole</h2>
+      <p>
+        Each category carries a response time. Your complaint gets a due date the moment it is
+        filed, and it escalates automatically if that date passes.
+      </p>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <mat-icon>tag</mat-icon>
+      <h2>Track without an account</h2>
+      <p>
+        Every complaint gets a reference number like <code>MC-2026-000123</code>. Anyone holding
+        it can check the status — no sign-in, and no personal details shown.
+      </p>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <mat-icon>visibility</mat-icon>
+      <h2>See the whole history</h2>
+      <p>
+        Assigned, started, resolved, closed — every step is recorded with a timestamp, and you
+        see the same timeline the department does.
+      </p>
+    </mat-card-content>
+  </mat-card>
+</div>

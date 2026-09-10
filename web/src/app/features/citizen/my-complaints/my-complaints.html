@@ -1,13 +1,92 @@
-<mat-card appearance="outlined">
-  <mat-card-header>
-    <mat-card-title>My complaints</mat-card-title>
-    <mat-card-subtitle>Citizen</mat-card-subtitle>
-  </mat-card-header>
+<div class="page">
+  <header class="head">
+    <h1>My complaints</h1>
+    <a mat-flat-button color="primary" routerLink="/my/new">
+      <mat-icon>add</mat-icon>
+      Report a problem
+    </a>
+  </header>
 
-  <mat-card-content>
-    @if (me(); as user) {
-      <p>Signed in as <strong>{{ user.fullName }}</strong> ({{ user.role }}).</p>
-    }
-    <p>Submitting and tracking complaints arrives in M4.</p>
-  </mat-card-content>
-</mat-card>
+  <mat-card>
+    <mat-card-content>
+      <mat-form-field appearance="outline" class="search">
+        <mat-label>Search</mat-label>
+        <input
+          matInput
+          placeholder="Reference number, title or address"
+          (keyup.enter)="onSearch($any($event.target).value)"
+          (blur)="onSearch($any($event.target).value)"
+        />
+        <mat-icon matSuffix>search</mat-icon>
+      </mat-form-field>
+
+      @if (result.isLoading()) {
+        <mat-progress-bar mode="indeterminate" />
+      }
+
+      @if (result.error()) {
+        <p class="empty">That did not load. Try again in a moment.</p>
+      } @else if (result.value(); as page) {
+        @if (page.total === 0) {
+          <p class="empty">
+            Nothing here yet. When you report a problem it will appear in this list with its
+            reference number and response deadline.
+          </p>
+        } @else {
+          <table mat-table [dataSource]="page.items" class="full">
+            <ng-container matColumnDef="reference">
+              <th mat-header-cell *matHeaderCellDef>Reference</th>
+              <td mat-cell *matCellDef="let row">
+                <a [routerLink]="['/my', row.id]" class="ref">{{ row.referenceNumber }}</a>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="title">
+              <th mat-header-cell *matHeaderCellDef>Problem</th>
+              <td mat-cell *matCellDef="let row">
+                <div class="title">{{ row.title }}</div>
+                <div class="meta">{{ row.categoryName }} · {{ row.departmentName }}</div>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="status">
+              <th mat-header-cell *matHeaderCellDef>Status</th>
+              <td mat-cell *matCellDef="let row">
+                <app-status-chip [status]="row.status" />
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="sla">
+              <th mat-header-cell *matHeaderCellDef>Response due</th>
+              <td mat-cell *matCellDef="let row">
+                <app-sla-badge
+                  [slaDueAt]="row.slaDueAt"
+                  [slaWarnedAt]="row.slaWarnedAt"
+                  [slaBreachedAt]="row.slaBreachedAt"
+                  [resolvedAt]="row.resolvedAt"
+                  [escalationLevel]="row.escalationLevel"
+                />
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="created">
+              <th mat-header-cell *matHeaderCellDef>Reported</th>
+              <td mat-cell *matCellDef="let row">{{ row.createdAt | date: 'mediumDate' }}</td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="columns"></tr>
+            <tr mat-row *matRowDef="let row; columns: columns"></tr>
+          </table>
+
+          <mat-paginator
+            [length]="page.total"
+            [pageSize]="page.pageSize"
+            [pageIndex]="page.page - 1"
+            [pageSizeOptions]="[10, 20, 50]"
+            (page)="onPage($event)"
+          />
+        }
+      }
+    </mat-card-content>
+  </mat-card>
+</div>

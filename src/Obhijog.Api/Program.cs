@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +10,7 @@ using Obhijog.Api.Errors;
 using Obhijog.Api.HealthChecks;
 using Obhijog.Api.Startup;
 using Obhijog.Infrastructure.Auth;
+using Obhijog.Infrastructure.Complaints;
 using Obhijog.Infrastructure.Identity;
 using Obhijog.Infrastructure.Options;
 using Obhijog.Infrastructure.Persistence;
@@ -72,10 +74,18 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
 
 builder.Services.AddAuthorizationBuilder().AddObhijogPolicies();
 
+// Enums cross the wire as strings, never as their ordinals. The database stores them as
+// varchar (§8.12) and the Angular models mirror them as string unions
+// (.claude/rules/frontend-angular.md), so an integer here would be the one representation
+// nothing else uses — and reordering an enum member would silently change the API.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<ReferenceService>();
+builder.Services.AddScoped<ComplaintService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<DatabaseSeeder>();
@@ -126,6 +136,7 @@ app.MapHealthEndpoints();
 var api = app.MapGroup("/api/v1");
 api.MapAuthEndpoints();
 api.MapReferenceEndpoints();
+api.MapComplaintEndpoints();
 
 // Before serving. In Azure the container comes from Bicep and this is a no-op; locally
 // nothing else creates it, and /health/ready is 503 until it exists.

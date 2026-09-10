@@ -1,4 +1,61 @@
-.api {
-  margin-bottom: 0;
-  color: rgba(0, 0, 0, 0.6);
+.hero {
+  max-width: 720px;
+  margin: 48px auto 32px;
+  padding: 0 16px;
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.25;
+  margin: 0 0 12px;
+}
+
+.lede {
+  font-size: 16px;
+  line-height: 1.6;
+  opacity: 0.78;
+  margin: 0 auto 24px;
+  max-width: 56ch;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  max-width: 1000px;
+  margin: 0 auto 48px;
+  padding: 0 16px;
+}
+
+.cards mat-icon {
+  opacity: 0.55;
+}
+
+.cards h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 8px 0 6px;
+}
+
+.cards p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  opacity: 0.78;
+}
+
+code {
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
 }

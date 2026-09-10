@@ -23,10 +23,29 @@ export const routes: Routes = [
     loadComponent: () => import('./features/auth/register/register').then((m) => m.Register),
   },
   {
+    // Unauthenticated by design — the one public read in the app (§9.5).
+    path: 'track',
+    loadComponent: () => import('./features/track/track').then((m) => m.Track),
+  },
+  {
     path: 'my',
     canActivate: [authGuard, roleGuard('Citizen')],
     loadComponent: () =>
       import('./features/citizen/my-complaints/my-complaints').then((m) => m.MyComplaints),
+  },
+  {
+    path: 'my/new',
+    canActivate: [authGuard, roleGuard('Citizen')],
+    loadComponent: () => import('./features/citizen/submit/submit').then((m) => m.SubmitComplaint),
+  },
+  {
+    // After 'my/new', so the literal segment is matched before the parameter.
+    path: 'my/:id',
+    canActivate: [authGuard, roleGuard('Citizen')],
+    loadComponent: () =>
+      import('./features/citizen/complaint-detail/complaint-detail').then(
+        (m) => m.ComplaintDetailPage,
+      ),
   },
   {
     path: 'queue',

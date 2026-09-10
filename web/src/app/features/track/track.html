@@ -1,0 +1,79 @@
+<div class="page">
+  <mat-card>
+    <mat-card-header>
+      <mat-card-title>Track a complaint</mat-card-title>
+      <mat-card-subtitle>
+        Enter the reference number you were given. No account needed.
+      </mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <form [formGroup]="form" (ngSubmit)="track()" class="lookup">
+        <mat-form-field appearance="outline">
+          <mat-label>Reference number</mat-label>
+          <input matInput formControlName="reference" placeholder="MC-2026-000123" />
+          @if (form.controls.reference.touched && form.controls.reference.invalid) {
+            <mat-error>Reference numbers look like MC-2026-000123.</mat-error>
+          }
+        </mat-form-field>
+        <button mat-flat-button color="primary" type="submit" [disabled]="searching()">
+          <mat-icon>search</mat-icon>
+          Track
+        </button>
+      </form>
+
+      @if (notFound()) {
+        <p class="muted">
+          No complaint matches that reference. Check the digits and try again.
+        </p>
+      }
+
+      @if (result(); as complaint) {
+        <div class="result">
+          <div class="head">
+            <span class="ref">{{ complaint.referenceNumber }}</span>
+            <app-status-chip [status]="complaint.status" />
+            @if (complaint.isSlaBreached) {
+              <span class="breached">Past its response deadline</span>
+            }
+          </div>
+
+          <dl class="facts">
+            <div>
+              <dt>Category</dt>
+              <dd>{{ complaint.categoryName }}</dd>
+            </div>
+            <div>
+              <dt>Handled by</dt>
+              <dd>{{ complaint.departmentName }}</dd>
+            </div>
+            <div>
+              <dt>Reported</dt>
+              <dd>{{ complaint.createdAt | date: 'mediumDate' }}</dd>
+            </div>
+            <div>
+              <dt>Response due</dt>
+              <dd>{{ complaint.slaDueAt | date: 'mediumDate' }}</dd>
+            </div>
+            @if (complaint.resolvedAt) {
+              <div>
+                <dt>Resolved</dt>
+                <dd>{{ complaint.resolvedAt | date: 'mediumDate' }}</dd>
+              </div>
+            }
+          </dl>
+
+          <h3>Progress</h3>
+          <ol class="timeline">
+            @for (entry of complaint.history; track entry.changedAt) {
+              <li>
+                <app-status-chip [status]="entry.toStatus" />
+                <span class="when">{{ entry.changedAt | date: 'medium' }}</span>
+              </li>
+            }
+          </ol>
+        </div>
+      }
+    </mat-card-content>
+  </mat-card>
+</div>
