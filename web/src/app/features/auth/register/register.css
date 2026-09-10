@@ -1,0 +1,11 @@
+.auth-card {
+  max-width: 26rem;
+  margin: 2rem auto;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}

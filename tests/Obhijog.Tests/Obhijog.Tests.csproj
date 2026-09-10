@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- FrameworkReference, not a package: referencing an ASP.NET Core app project needs
+       the shared framework available to the test host too. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -17,6 +23,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Obhijog.Domain\Obhijog.Domain.csproj" />
     <ProjectReference Include="..\..\src\Obhijog.Infrastructure\Obhijog.Infrastructure.csproj" />
+
+    <!-- ComplaintScopeTests exercises HttpContextCurrentUser and Policies, which are the
+         Api project's claims reader and policy names (SPEC.md §10.3). -->
+    <ProjectReference Include="..\..\src\Obhijog.Api\Obhijog.Api.csproj" />
   </ItemGroup>
 
 </Project>
