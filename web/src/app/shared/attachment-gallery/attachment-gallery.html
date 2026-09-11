@@ -1,0 +1,31 @@
+<div class="gallery">
+  @if (items().length === 0 && !canUpload()) {
+    <p class="none">No photos.</p>
+  }
+
+  <div class="thumbs">
+    @for (attachment of items(); track attachment.id) {
+      <button
+        type="button"
+        class="thumb"
+        (click)="open(attachment)"
+        [title]="attachment.originalFileName"
+      >
+        <img [src]="attachment.readUrl" [alt]="attachment.originalFileName" loading="lazy" />
+        <span class="size">{{ attachment.sizeBytes / 1024 | number: '1.0-0' }} KB</span>
+      </button>
+    }
+
+    @if (canUpload()) {
+      <label class="add" [class.busy]="uploading()">
+        <input type="file" accept="image/jpeg,image/png,image/webp" (change)="onFile($event)" />
+        <mat-icon>add_a_photo</mat-icon>
+        <span>Add a photo</span>
+      </label>
+    }
+  </div>
+
+  @if (uploading()) {
+    <mat-progress-bar mode="determinate" [value]="percent()" />
+  }
+</div>

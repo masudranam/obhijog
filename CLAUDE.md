@@ -31,11 +31,12 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1–M4 are done; M5 (issue #6) is next.** On top of the schema, the seeder and authentication,
-a citizen can now file a complaint, see it with its reference number and SLA countdown, and track
-it by reference without signing in. `ComplaintQueryScope` is in place and every complaint query
-goes through it. **Nothing moves a complaint yet** — the guard table, transitions and
-`availableActions` are M6, and attachments are M5. The roadmap table in §20 is the live progress
+**M1–M5 are done; M6 (issue #7) is next.** On top of the schema, the seeder and authentication,
+a citizen can file a complaint, attach photos to it, see it with its reference number and SLA
+countdown, and track it by reference without signing in. `ComplaintQueryScope` is in place and
+every complaint query goes through it. **Nothing moves a complaint yet** — the guard table,
+transitions and `availableActions` are M6, which is also where issue #25 has to be settled first.
+The roadmap table in §20 is the live progress
 tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
 starting anything; tick the box in the milestone's own PR, only once the DoD really passes.
 

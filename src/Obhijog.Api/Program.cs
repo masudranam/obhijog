@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Obhijog.Api.Auth;
@@ -9,6 +10,7 @@ using Obhijog.Api.Endpoints;
 using Obhijog.Api.Errors;
 using Obhijog.Api.HealthChecks;
 using Obhijog.Api.Startup;
+using Obhijog.Infrastructure.Attachments;
 using Obhijog.Infrastructure.Auth;
 using Obhijog.Infrastructure.Complaints;
 using Obhijog.Infrastructure.Identity;
@@ -34,6 +36,15 @@ builder.Services.AddOptions<JwtOptions>()
 builder.Services.AddOptions<StorageOptions>()
     .Bind(builder.Configuration.GetSection(StorageOptions.SectionName))
     .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddOptions<AttachmentOptions>()
+    .Bind(builder.Configuration.GetSection(AttachmentOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(
+        o => o.AllowedContentTypeSet.Count > 0,
+        "Attachments:AllowedContentTypes must name at least one type. It is an allow-list, "
+        + "so an empty value rejects every upload (SPEC.md §19).")
     .ValidateOnStart();
 
 // IsNullOrWhiteSpace, not a null check: an empty value in appsettings.json binds to ""
@@ -72,6 +83,13 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     .Configure<IOptions<JwtOptions>>((bearer, jwt) =>
         bearer.TokenValidationParameters = TokenService.CreateValidationParameters(jwt.Value));
 
+// The multipart limit tracks Attachments:MaxSizeBytes rather than being a second number
+// to keep in step. Without it a caller could stream an arbitrarily large body that the
+// framework buffers before the service ever gets to return its 413.
+builder.Services.AddOptions<FormOptions>()
+    .Configure<IOptions<AttachmentOptions>>((form, attachments) =>
+        form.MultipartBodyLengthLimit = attachments.Value.MaxSizeBytes + 64 * 1024);
+
 builder.Services.AddAuthorizationBuilder().AddObhijogPolicies();
 
 // Enums cross the wire as strings, never as their ordinals. The database stores them as
@@ -86,6 +104,8 @@ builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<ReferenceService>();
 builder.Services.AddScoped<ComplaintService>();
+builder.Services.AddScoped<AttachmentService>();
+builder.Services.AddScoped<IAttachmentStore, BlobAttachmentStore>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<DatabaseSeeder>();
@@ -137,6 +157,7 @@ var api = app.MapGroup("/api/v1");
 api.MapAuthEndpoints();
 api.MapReferenceEndpoints();
 api.MapComplaintEndpoints();
+api.MapAttachmentEndpoints();
 
 // Before serving. In Azure the container comes from Bicep and this is a no-op; locally
 // nothing else creates it, and /health/ready is 503 until it exists.

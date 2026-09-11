@@ -46,11 +46,12 @@ Not the CRUD. Three things:
 
 ## Status
 
-**M4 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
+**M5 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
 endpoints, the full data model with its migration, an idempotent seeder, JWT authentication with
-the three roles, and complaint submission are in place: a citizen files a complaint, gets a
-reference number and an SLA deadline, and anyone holding that reference can track it without an
-account. Complaints cannot be moved between statuses yet — that is M6.
+the three roles, complaint submission and photo attachments are in place: a citizen files a
+complaint with photos, gets a reference number and an SLA deadline, and anyone holding that
+reference can track it without an account. Complaints cannot be moved between statuses yet —
+that is M6.
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.
 
