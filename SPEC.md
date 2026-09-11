@@ -649,7 +649,15 @@ transitions. `submit` is the first of these: it records that a complaint came in
 creation and **can never arrive in a request payload** — a caller sending `action: "submit"` to
 `POST /complaints/{id}/transitions` gets the same `409` as any other absent `(From, Action)` pair.
 
-The priority edit needs the same treatment and does not have it yet (issue #25).
+`priority` is the second history action, added in M6 and settling issue #25. §12.4 already said
+priority is not a transition; before M6 there was no `Action` value to record one with, so the edit
+would have had to borrow a transition's name or write no history at all. It is status-independent —
+`FromStatus == ToStatus` — has no guard-table row, and like `submit` can never arrive in a request
+payload.
+
+The enum therefore has ten values: the eight transition actions above, plus `submit` and
+`priority`. Only the eight ever appear in `availableActions`, and only the eight are accepted by
+`POST /complaints/{id}/transitions`.
 
 ### 12.3 The guard table
 
@@ -816,11 +824,21 @@ From **M6 onward**, every complaint DTO returned by the list and the detail endp
 **`availableActions: string[]`** — the actions this caller may perform on this complaint right now,
 computed from the guard table. The UI renders buttons from it (§15).
 
-The field is **absent in M4 and M5**, not empty. The guard table that computes it does not exist
-until M6, and an empty array would be a claim the client would faithfully render as "you may do
-nothing" rather than "the server cannot say yet". M4's citizen screens therefore show no action
-buttons at all, which is correct: the only actions a citizen has — `close` and `reopen` — need a
-`Resolved` complaint, and nothing can reach `Resolved` before M6.
+It was **absent in M4 and M5**, not empty. The guard table that computes it did not exist until
+M6, and an empty array would have been a claim the client would faithfully render as "you may do
+nothing" rather than "the server cannot say yet". M4's citizen screens therefore showed no action
+buttons at all, which was correct: the only actions a citizen has — `close` and `reopen` — need a
+`Resolved` complaint, and nothing could reach `Resolved` before M6.
+
+Since M6 the field is present on both DTOs and always a real answer. It is computed **after**
+materialization, not in SQL: the guard table is a C# dictionary and there is no translating it to
+a `CASE` expression. The list and the detail call the same function, so a button offered by a row
+in the queue can never be refused by the detail screen it links to.
+
+The detail DTO also carries **`escalations`** — the rungs of the SLA ladder, for F9's merged
+timeline. Empty until the M7 sweeper writes one. It carries the level and the moment but no reason
+text: the entity's `Reason` names the supervisor who was notified, and staff identity is not a
+reporter's to see (§9.5).
 
 ---
 
@@ -1236,7 +1254,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☑ |
 | M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☑ |
 | M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☑ |
-| M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☐ |
+| M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☑ |
 | M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☐ |
 | M8 | #9 | Dashboard & CSV export | F13, F14 | M7 | Every dashboard figure matches a hand count on seed data; the export shares the list's filter and scope code; CSV injection neutralised | ☐ |
 | M9 | #10 | Bicep & deploy workflow | F15 | M8 | `az deployment group what-if` is clean; the API image builds; the deploy workflow is dispatch-only; no secret literals | ☐ |

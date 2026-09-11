@@ -31,11 +31,17 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1–M5 are done; M6 (issue #7) is next.** On top of the schema, the seeder and authentication,
-a citizen can file a complaint, attach photos to it, see it with its reference number and SLA
-countdown, and track it by reference without signing in. `ComplaintQueryScope` is in place and
-every complaint query goes through it. **Nothing moves a complaint yet** — the guard table,
-transitions and `availableActions` are M6, which is also where issue #25 has to be settled first.
+**M1–M6 are done; M7 (issue #8) is next.** On top of the schema, the seeder and authentication,
+a citizen can file a complaint, attach photos to it, and track it by reference without signing in.
+`ComplaintQueryScope` is in place and every complaint query goes through it. The guard table now
+exists: all twelve rows of §12.3 live in `ComplaintStateMachine`, `ComplaintTransitionService` is
+the only write path for a status, every DTO carries `availableActions`, and the staff queue and
+department inbox drive the whole lifecycle from the UI. Comments are in, with the §9.4 internal
+filter applied in the query.
+
+**The SLA clock does not tick yet.** `SlaDueAt` is stored and rendered, but nothing warns,
+breaches, escalates or auto-closes — that is M7, and `escalations` is an empty list on every
+complaint until it lands.
 The roadmap table in §20 is the live progress
 tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
 starting anything; tick the box in the milestone's own PR, only once the DoD really passes.

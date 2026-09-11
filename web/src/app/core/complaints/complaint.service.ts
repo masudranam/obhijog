@@ -5,17 +5,30 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   Category,
+  ChangePriorityRequest,
+  Comment,
   ComplaintDetail,
   ComplaintListItem,
+  ComplaintPriority,
   ComplaintStatus,
+  CreateCommentRequest,
   CreateComplaintRequest,
   Page,
   PublicComplaint,
+  SlaState,
+  StaffMember,
+  TransitionRequest,
 } from '../models/api';
 
-/** The subset of §13.3 the M4 screens use. The rest arrives with the screens that need it. */
+/** SPEC.md §13.3. */
 export interface ComplaintListParams {
   status?: ComplaintStatus[];
+  priority?: ComplaintPriority[];
+  categoryId?: string;
+  departmentId?: string;
+  assignedToMe?: boolean;
+  unassigned?: boolean;
+  slaState?: SlaState;
   q?: string;
   sort?: string;
   page?: number;
@@ -44,6 +57,25 @@ export class ComplaintService {
       httpParams = httpParams.append('status', status);
     }
 
+    for (const priority of params.priority ?? []) {
+      httpParams = httpParams.append('priority', priority);
+    }
+
+    if (params.categoryId) {
+      httpParams = httpParams.set('categoryId', params.categoryId);
+    }
+    if (params.departmentId) {
+      httpParams = httpParams.set('departmentId', params.departmentId);
+    }
+    if (params.assignedToMe) {
+      httpParams = httpParams.set('assignedToMe', true);
+    }
+    if (params.unassigned) {
+      httpParams = httpParams.set('unassigned', true);
+    }
+    if (params.slaState) {
+      httpParams = httpParams.set('slaState', params.slaState);
+    }
     if (params.q) {
       httpParams = httpParams.set('q', params.q);
     }
@@ -73,5 +105,34 @@ export class ComplaintService {
 
   categories(): Observable<Category[]> {
     return this.http.get<Category[]>(`${environment.apiBaseUrl}/categories`);
+  }
+
+  /**
+   * The one write path for a complaint's status (§12). Note there is no `assign()`,
+   * `resolve()` or `close()` here: verb methods would invite a component to decide which
+   * one is legal, and that decision belongs to the guard table on the server.
+   */
+  transition(id: string, request: TransitionRequest): Observable<ComplaintDetail> {
+    return this.http.post<ComplaintDetail>(`${this.baseUrl}/${id}/transitions`, request);
+  }
+
+  /** §12.4 — not a transition; priority never moves the complaint. Dept Admin only. */
+  changePriority(id: string, request: ChangePriorityRequest): Observable<ComplaintDetail> {
+    return this.http.put<ComplaintDetail>(`${this.baseUrl}/${id}/priority`, request);
+  }
+
+  comments(id: string): Observable<Comment[]> {
+    return this.http.get<Comment[]>(`${this.baseUrl}/${id}/comments`);
+  }
+
+  addComment(id: string, request: CreateCommentRequest): Observable<Comment> {
+    return this.http.post<Comment>(`${this.baseUrl}/${id}/comments`, request);
+  }
+
+  /** `GET /departments/{id}/staff` — the assignee picker. Dept Admin only, own dept only. */
+  departmentStaff(departmentId: string): Observable<StaffMember[]> {
+    return this.http.get<StaffMember[]>(
+      `${environment.apiBaseUrl}/departments/${departmentId}/staff`,
+    );
   }
 }

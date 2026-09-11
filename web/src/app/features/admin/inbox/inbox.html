@@ -1,13 +1,43 @@
-<mat-card appearance="outlined">
-  <mat-card-header>
-    <mat-card-title>Department inbox</mat-card-title>
-    <mat-card-subtitle>Dept Admin</mat-card-subtitle>
-  </mat-card-header>
+<div class="page">
+  <header class="head">
+    <h1>Department inbox</h1>
+    <mat-button-toggle-group
+      [value]="bucket()"
+      (valueChange)="onBucket($event)"
+      aria-label="Which complaints to show"
+    >
+      @for (item of buckets; track item.value) {
+        <mat-button-toggle [value]="item.value">{{ item.label }}</mat-button-toggle>
+      }
+    </mat-button-toggle-group>
+  </header>
 
-  <mat-card-content>
-    @if (me(); as user) {
-      <p>Signed in as <strong>{{ user.fullName }}</strong> ({{ user.role }}).</p>
-    }
-    <p>Triage, assignment and the dashboard arrive in M6 and M8.</p>
-  </mat-card-content>
-</mat-card>
+  <mat-card>
+    <mat-card-content>
+      <mat-form-field appearance="outline" class="search">
+        <mat-label>Search</mat-label>
+        <input
+          matInput
+          placeholder="Reference number, title or address"
+          (keyup.enter)="onSearch($any($event.target).value)"
+          (blur)="onSearch($any($event.target).value)"
+        />
+        <mat-icon matSuffix>search</mat-icon>
+      </mat-form-field>
+
+      @if (result.isLoading()) {
+        <mat-progress-bar mode="indeterminate" />
+      }
+
+      @if (result.error()) {
+        <p class="empty">That did not load. Try again in a moment.</p>
+      } @else if (result.value(); as page) {
+        @if (page.total === 0) {
+          <p class="empty">Nothing in this bucket.</p>
+        } @else {
+          <app-complaint-table [page]="page" (paged)="onPage($event)" />
+        }
+      }
+    </mat-card-content>
+  </mat-card>
+</div>

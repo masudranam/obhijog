@@ -39,11 +39,23 @@ export const routes: Routes = [
     loadComponent: () => import('./features/citizen/submit/submit').then((m) => m.SubmitComplaint),
   },
   {
-    // After 'my/new', so the literal segment is matched before the parameter.
+    // After 'my/new', so the literal segment is matched before the parameter. Kept as a
+    // citizen-facing alias of /complaints/:id — the links a citizen already has still work.
     path: 'my/:id',
     canActivate: [authGuard, roleGuard('Citizen')],
     loadComponent: () =>
-      import('./features/citizen/complaint-detail/complaint-detail').then(
+      import('./features/complaints/complaint-detail/complaint-detail').then(
+        (m) => m.ComplaintDetailPage,
+      ),
+  },
+  {
+    // One detail screen for all three roles. No role guard beyond being signed in: what
+    // differs between them is what the server returns, and a complaint outside the
+    // caller's scope is a 404 rather than a route they cannot reach (§9.2, §9.3).
+    path: 'complaints/:id',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/complaints/complaint-detail/complaint-detail').then(
         (m) => m.ComplaintDetailPage,
       ),
   },

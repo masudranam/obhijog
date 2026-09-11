@@ -32,4 +32,14 @@ public enum ComplaintAction
     /// accepted from a request payload, and absent from the guard table by design.
     /// </summary>
     Submit,
+
+    /// <summary>
+    /// The Dept Admin priority edit of §12.4, written by
+    /// <c>PUT /complaints/{id}/priority</c>.
+    ///
+    /// Status-independent: priority can change from any status and never moves the
+    /// complaint, so it has no guard-table row and <c>FromStatus == ToStatus</c>. Like
+    /// <see cref="Submit"/> it cannot arrive on the transitions endpoint. Resolves issue #25.
+    /// </summary>
+    Priority,
 }

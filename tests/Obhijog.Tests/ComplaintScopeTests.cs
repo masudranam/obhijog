@@ -319,6 +319,64 @@ public class ComplaintScopeTests
         Assert.Equal(["citizen1-water", "citizen2-water"], scoped);
     }
 
+    // ---------------------------------------------------------------------------------
+    // §9.4 / F9 — internal comments
+    // ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// F9: a Citizen never sees an internal comment. Asserted over the real
+    /// <c>CommentQueryScope</c> so a regression in the production filter fails here, and
+    /// over <c>IQueryable</c> so it is the same expression EF translates.
+    /// </summary>
+    [Fact]
+    public void ACitizenNeverSeesAnInternalComment()
+    {
+        var comments = new[]
+        {
+            Comment("public note", isInternal: false),
+            Comment("internal note", isInternal: true),
+            Comment("another public note", isInternal: false),
+        }.AsQueryable();
+
+        var visible = CommentQueryScope
+            .For(comments, For(UserRole.Citizen, departmentId: null))
+            .Select(c => c.Body)
+            .ToList();
+
+        Assert.Equal(["public note", "another public note"], visible);
+    }
+
+    /// <summary>
+    /// The other half: the filter must not fire for staff, or the internal note is useless.
+    /// </summary>
+    [Theory]
+    [InlineData(UserRole.Staff)]
+    [InlineData(UserRole.DeptAdmin)]
+    public void StaffSeeEveryComment(UserRole role)
+    {
+        var comments = new[]
+        {
+            Comment("public note", isInternal: false),
+            Comment("internal note", isInternal: true),
+        }.AsQueryable();
+
+        var visible = CommentQueryScope
+            .For(comments, For(role, Guid.CreateVersion7()))
+            .Select(c => c.Body)
+            .ToList();
+
+        Assert.Equal(["public note", "internal note"], visible);
+    }
+
+    private static ComplaintComment Comment(string body, bool isInternal) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        ComplaintId = Guid.CreateVersion7(),
+        AuthorId = Guid.CreateVersion7(),
+        Body = body,
+        IsInternal = isInternal,
+    };
+
     private static Complaint Complaint(Guid citizenId, Guid departmentId, string title) => new()
     {
         Id = Guid.CreateVersion7(),
