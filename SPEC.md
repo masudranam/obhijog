@@ -884,6 +884,10 @@ that delivers it is in the heading; §20 is the live tracker.
   path component.
 - `GET /attachments/{aid}` returns `302` to a read-only SAS valid for `Storage:ReadSasMinutes`
   (15). The container is private — a direct container URL without the SAS fails.
+- The **list** response carries a `readUrl` per attachment — the same short-lived SAS the `302`
+  would redirect that caller to. A browser cannot attach a bearer token to an `<img>`, so a
+  gallery has no other way to render a thumbnail from a private container, and one signed list
+  beats one redirect per thumbnail.
 - Angular: upload with progress, and a thumbnail gallery on the detail screen.
 
 ### F7 — State machine & transitions · M6
@@ -1079,7 +1083,8 @@ they are the cheapest and most valuable things in the codebase to test.
 
 - **`ProblemDetails` everywhere.** One `IExceptionHandler` maps `NotFoundException → 404`,
   `ForbiddenException → 403`, `InvalidTransitionException → 409`,
-  `DbUpdateConcurrencyException → 409`, `ValidationException → 400`. No endpoint returns
+  `DbUpdateConcurrencyException → 409`, `ValidationException → 400`,
+  `UnsupportedMediaTypeException → 415`, `PayloadTooLargeException → 413`. No endpoint returns
   `BadRequest` from its own `try/catch`.
 - **`TimeProvider` injected.** No direct `DateTimeOffset.UtcNow` outside `Program.cs`.
 - **Structured logging** via `ILogger<T>` with a `traceId` scope; that id is echoed in every
@@ -1230,7 +1235,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M2 | #3 | Domain model, migration, seed | F2 | M1 | `dotnet ef database update` from empty succeeds; every §8 constraint and index present; the seeder is idempotent; seeding without `SEED_PASSWORD` fails cleanly | ☑ |
 | M3 | #4 | Authentication & roles | F3 | M2 | Three roles log in and land on their own route; refresh rotation revokes families; a missing signing key fails startup; `Staff` → `403` on a `DeptAdmin` endpoint | ☑ |
 | M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☑ |
-| M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☐ |
+| M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☑ |
 | M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☐ |
 | M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☐ |
 | M8 | #9 | Dashboard & CSV export | F13, F14 | M7 | Every dashboard figure matches a hand count on seed data; the export shares the list's filter and scope code; CSV injection neutralised | ☐ |

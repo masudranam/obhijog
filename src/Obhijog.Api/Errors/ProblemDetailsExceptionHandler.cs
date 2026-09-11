@@ -78,6 +78,12 @@ public class ProblemDetailsExceptionHandler(
         DbUpdateConcurrencyException => (StatusCodes.Status409Conflict, "Concurrency conflict"),
         ValidationException => (StatusCodes.Status400BadRequest, "Validation failed"),
 
+        // F6. Both are validation in spirit but carry their own status, so they cannot be
+        // folded into ValidationException without losing the code the client checks.
+        UnsupportedMediaTypeException =>
+            (StatusCodes.Status415UnsupportedMediaType, "Unsupported media type"),
+        PayloadTooLargeException => (StatusCodes.Status413PayloadTooLarge, "File too large"),
+
         // §10.1: reuse is a 401 to the caller. The family revocation has already happened
         // inside TokenService; the response deliberately does not say so.
         RefreshTokenReuseException => (StatusCodes.Status401Unauthorized, "Invalid refresh token"),

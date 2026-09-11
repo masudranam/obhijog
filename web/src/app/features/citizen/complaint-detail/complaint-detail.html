@@ -87,6 +87,15 @@
 
         <mat-divider />
 
+        <h3>Photos</h3>
+        <app-attachment-gallery
+          [complaintId]="complaint.id"
+          [initial]="attachments.value()"
+          [canUpload]="true"
+        />
+
+        <mat-divider />
+
         <h3>Where</h3>
         <app-map-picker
           [initialLat]="complaint.latitude"

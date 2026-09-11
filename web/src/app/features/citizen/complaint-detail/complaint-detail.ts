@@ -8,8 +8,10 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { RouterLink } from '@angular/router';
 
+import { AttachmentService } from '../../../core/complaints/attachment.service';
 import { ComplaintService } from '../../../core/complaints/complaint.service';
 import { ComplaintAction } from '../../../core/models/api';
+import { AttachmentGallery } from '../../../shared/attachment-gallery/attachment-gallery';
 import { MapPicker } from '../../../shared/map-picker/map-picker';
 import { SlaBadge } from '../../../shared/sla-badge/sla-badge';
 import { StatusChip } from '../../../shared/status-chip/status-chip';
@@ -34,6 +36,7 @@ import { StatusChip } from '../../../shared/status-chip/status-chip';
     MatIconModule,
     MatProgressBarModule,
     RouterLink,
+    AttachmentGallery,
     MapPicker,
     SlaBadge,
     StatusChip,
@@ -43,6 +46,7 @@ import { StatusChip } from '../../../shared/status-chip/status-chip';
 })
 export class ComplaintDetailPage {
   private readonly complaints = inject(ComplaintService);
+  private readonly attachmentService = inject(AttachmentService);
 
   /** Bound from the route by `withComponentInputBinding`. */
   readonly id = input.required<string>();
@@ -50,6 +54,17 @@ export class ComplaintDetailPage {
   protected readonly result = rxResource({
     params: () => ({ id: this.id() }),
     stream: ({ params }) => this.complaints.get(params.id),
+  });
+
+  /**
+   * A separate request from the complaint, because the read URLs are short-lived SAS
+   * tokens: folding them into the detail DTO would tie their lifetime to a payload the
+   * client may hold on screen for an hour.
+   */
+  protected readonly attachments = rxResource({
+    params: () => ({ id: this.id() }),
+    stream: ({ params }) => this.attachmentService.list(params.id),
+    defaultValue: [],
   });
 
   /** History rows are the timeline; the wording is per action, not per status. */

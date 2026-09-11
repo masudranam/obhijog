@@ -188,6 +188,22 @@ export interface PublicHistoryEntry {
   toStatus: ComplaintStatus;
 }
 
+/**
+ * SPEC.md §8.7, F6.
+ *
+ * `readUrl` is a short-lived SAS onto a private container. It is served on the DTO because
+ * an `<img>` cannot carry a bearer token, so it is the only way a thumbnail renders. It
+ * expires — treat it as good for this page view, not as a permalink.
+ */
+export interface Attachment {
+  id: string;
+  originalFileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  readUrl: string;
+}
+
 /** RFC 9457, as SPEC.md §13.1 requires on every non-2xx. */
 export interface ProblemDetails {
   type?: string;
