@@ -1,13 +1,34 @@
-<mat-card appearance="outlined">
-  <mat-card-header>
-    <mat-card-title>My queue</mat-card-title>
-    <mat-card-subtitle>Staff</mat-card-subtitle>
-  </mat-card-header>
+<div class="page">
+  <header class="head">
+    <h1>My queue</h1>
+    <mat-button-toggle-group
+      [value]="scope()"
+      (valueChange)="onScope($event)"
+      aria-label="Which of my complaints to show"
+    >
+      <mat-button-toggle value="open">Open</mat-button-toggle>
+      <mat-button-toggle value="all">All</mat-button-toggle>
+    </mat-button-toggle-group>
+  </header>
 
-  <mat-card-content>
-    @if (me(); as user) {
-      <p>Signed in as <strong>{{ user.fullName }}</strong> ({{ user.role }}).</p>
-    }
-    <p>The assigned-work queue arrives in M6.</p>
-  </mat-card-content>
-</mat-card>
+  <mat-card>
+    <mat-card-content>
+      @if (result.isLoading()) {
+        <mat-progress-bar mode="indeterminate" />
+      }
+
+      @if (result.error()) {
+        <p class="empty">That did not load. Try again in a moment.</p>
+      } @else if (result.value(); as page) {
+        @if (page.total === 0) {
+          <p class="empty">
+            Nothing is assigned to you right now. Work appears here once a department admin
+            assigns it.
+          </p>
+        } @else {
+          <app-complaint-table [page]="page" [columns]="columns" (paged)="onPage($event)" />
+        }
+      }
+    </mat-card-content>
+  </mat-card>
+</div>

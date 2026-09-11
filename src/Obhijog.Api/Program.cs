@@ -105,6 +105,8 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<ReferenceService>();
 builder.Services.AddScoped<ComplaintService>();
 builder.Services.AddScoped<AttachmentService>();
+builder.Services.AddScoped<ComplaintTransitionService>();
+builder.Services.AddScoped<CommentService>();
 builder.Services.AddScoped<IAttachmentStore, BlobAttachmentStore>();
 
 builder.Services.AddSingleton(TimeProvider.System);

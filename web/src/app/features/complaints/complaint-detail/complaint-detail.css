@@ -126,3 +126,17 @@ h3 {
   opacity: 0.7;
   max-width: 56ch;
 }
+
+.priority {
+  margin-top: 16px;
+  width: 220px;
+}
+
+.timeline li.escalation .dot {
+  background: #b71c1c;
+}
+
+.timeline li.escalation .what {
+  color: #b71c1c;
+  font-weight: 600;
+}

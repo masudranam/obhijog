@@ -29,8 +29,48 @@ public static class ComplaintEndpoints
         // anonymous rather than left to default, so it reads as a decision.
         group.MapGet("/by-reference/{reference}", GetByReferenceAsync).AllowAnonymous();
 
+        // ONE transitions endpoint, not seven verb routes (D3, §12). Every movement passes
+        // the guard table; no route can bypass it. Authorization is deliberately only
+        // "authenticated" — which role may do what is the guard table's answer, not a
+        // policy's, and the two are not interchangeable.
+        group.MapPost("/{id:guid}/transitions", TransitionAsync).RequireAuthorization();
+
+        // Priority is not a transition (§12.4): status-independent, Dept Admin only.
+        group.MapPut("/{id:guid}/priority", ChangePriorityAsync)
+            .RequireAuthorization(Policies.DeptAdmin);
+
+        group.MapGet("/{id:guid}/comments", ListCommentsAsync).RequireAuthorization();
+        group.MapPost("/{id:guid}/comments", AddCommentAsync).RequireAuthorization();
+
         return group;
     }
+
+    private static async Task<IResult> TransitionAsync(
+        Guid id,
+        TransitionRequest request,
+        ComplaintTransitionService transitions,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await transitions.TransitionAsync(id, request, cancellationToken));
+
+    private static async Task<IResult> ChangePriorityAsync(
+        Guid id,
+        ChangePriorityRequest request,
+        ComplaintTransitionService transitions,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await transitions.ChangePriorityAsync(id, request.Priority, cancellationToken));
+
+    private static async Task<IResult> ListCommentsAsync(
+        Guid id,
+        CommentService comments,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await comments.ListAsync(id, cancellationToken));
+
+    private static async Task<IResult> AddCommentAsync(
+        Guid id,
+        CreateCommentRequest request,
+        CommentService comments,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await comments.AddAsync(id, request, cancellationToken));
 
     private static async Task<IResult> CreateAsync(
         CreateComplaintRequest request,

@@ -45,15 +45,18 @@ public record ComplaintListItem(
     DateTimeOffset? SlaBreachedAt,
     DateTimeOffset? SlaWarnedAt,
     short EscalationLevel,
-    DateTimeOffset? ResolvedAt);
+    DateTimeOffset? ResolvedAt,
+    string? AssignedStaffName,
+    IReadOnlyList<ComplaintAction> AvailableActions);
 
 /// <summary>
 /// The full read. Carries the SLA fields so the client renders badges from them and never
 /// re-derives the 80/100/150 thresholds (§15, CLAUDE.md non-negotiable 6).
 ///
-/// <c>availableActions</c> is absent until M6 builds the guard table. An empty array here
-/// would be a lie the UI would render buttons from; the field arrives with the thing that
-/// can populate it honestly.
+/// <c>availableActions</c> is what this caller may do to this complaint right now, computed
+/// from the guard table in <c>ComplaintStateMachine</c>. The UI renders buttons from it and
+/// never re-derives it (§13.3, §15) — which also means a button cannot appear for an action
+/// the write path would then refuse, because both read the same table.
 /// </summary>
 public record ComplaintDetail(
     Guid Id,
@@ -81,7 +84,19 @@ public record ComplaintDetail(
     string? RejectionReason,
     string? ResolutionNote,
     int ReopenCount,
-    IReadOnlyList<ComplaintHistoryEntry> History);
+    IReadOnlyList<ComplaintAction> AvailableActions,
+    IReadOnlyList<ComplaintHistoryEntry> History,
+    IReadOnlyList<EscalationEntry> Escalations);
+
+/// <summary>
+/// One rung of the SLA ladder, for the F9 timeline. Empty until the M7 sweeper writes one.
+///
+/// Deliberately narrower than <c>EscalationEvent</c>: the entity's <c>Reason</c> names the
+/// supervisor who was notified, and staff identity is not something a Citizen gets from a
+/// complaint they reported (§9.5). The level and the moment are enough to render the row,
+/// and <c>escalationLevel</c> is already on the list DTO, so neither is a new disclosure.
+/// </summary>
+public record EscalationEntry(Guid Id, short Level, DateTimeOffset RaisedAt);
 
 public record ComplaintHistoryEntry(
     Guid Id,

@@ -163,15 +163,16 @@ public class ComplaintService(
         var filtered = ApplyFilters(scoped, query);
         var total = await filtered.CountAsync(cancellationToken);
 
-        var items = await ApplySort(filtered, query.Sort)
+        var rows = await ApplySort(filtered, query.Sort)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(c => new ComplaintListItem(
+            .Select(c => new
+            {
                 c.Id,
                 c.ReferenceNumber,
                 c.Title,
-                c.Category!.Name,
-                c.Department!.Name,
+                CategoryName = c.Category!.Name,
+                DepartmentName = c.Department!.Name,
                 c.Status,
                 c.Priority,
                 c.CreatedAt,
@@ -179,8 +180,40 @@ public class ComplaintService(
                 c.SlaBreachedAt,
                 c.SlaWarnedAt,
                 c.EscalationLevel,
-                c.ResolvedAt))
+                c.ResolvedAt,
+                c.CitizenId,
+                c.AssignedStaffId,
+                // A subquery rather than a navigation: `User` extends `IdentityUser<Guid>`
+                // and lives in Infrastructure (D13), so `Complaint` has no property to
+                // traverse. Npgsql folds this into a LATERAL join.
+                AssignedStaffName = db.Users
+                    .Where(u => u.Id == c.AssignedStaffId)
+                    .Select(u => u.FullName)
+                    .FirstOrDefault(),
+            })
             .ToListAsync(cancellationToken);
+
+        // availableActions is computed after materialization: the guard table is a pure
+        // C# dictionary and there is no translating it to SQL. It is the same call the
+        // detail read makes, so a list button and a detail button can never disagree.
+        var items = rows
+            .Select(c => new ComplaintListItem(
+                c.Id,
+                c.ReferenceNumber,
+                c.Title,
+                c.CategoryName,
+                c.DepartmentName,
+                c.Status,
+                c.Priority,
+                c.CreatedAt,
+                c.SlaDueAt,
+                c.SlaBreachedAt,
+                c.SlaWarnedAt,
+                c.EscalationLevel,
+                c.ResolvedAt,
+                c.AssignedStaffName,
+                AvailableActions(c.Status, c.AssignedStaffId, c.CitizenId)))
+            .ToList();
 
         return new Page<ComplaintListItem>(items, page, pageSize, total);
     }
@@ -190,14 +223,53 @@ public class ComplaintService(
     /// scope filter simply returns nothing and this method cannot tell the difference
     /// between "not yours" and "does not exist". That is the point (§9.2).
     /// </summary>
-    public async Task<ComplaintDetail> GetAsync(
+    public Task<ComplaintDetail> GetAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        ReadAsync(ComplaintQueryScope.For(db.Complaints.AsNoTracking(), currentUser), id, cancellationToken);
+
+    /// <summary>
+    /// The same read, for the response to a write this caller has **already been authorised
+    /// to make** — the one place the scope is deliberately not re-applied.
+    ///
+    /// A <c>recategorize</c> can reroute a complaint into another department (§12.4), and
+    /// after it commits the admin who performed it is legitimately out of scope. Re-reading
+    /// through the seam would then answer <c>404</c> to a request that succeeded, telling
+    /// the caller the opposite of the truth about their own action.
+    ///
+    /// This is not a hole in §9.3: authorization already happened, against the pre-write
+    /// state, when <c>ComplaintTransitionService</c> loaded the row through the seam. No
+    /// caller reaches this without having just legally mutated this exact complaint.
+    /// </summary>
+    internal async Task<ComplaintDetail> GetAfterWriteAsync(
         Guid id,
         CancellationToken cancellationToken = default)
     {
-        var complaint = await ComplaintQueryScope
+        var detail = await ReadAsync(db.Complaints.AsNoTracking(), id, cancellationToken);
+
+        // …but `availableActions` is still an answer about *this* caller, and the guard
+        // table cannot see departments. A recategorize that rerouted the complaint away
+        // would otherwise come back offering `assign` on a complaint whose next request is
+        // a 404. Out of scope now means nothing is available now.
+        var stillVisible = await ComplaintQueryScope
             .For(db.Complaints.AsNoTracking(), currentUser)
+            .AnyAsync(c => c.Id == id, cancellationToken);
+
+        return stillVisible ? detail : detail with { AvailableActions = [] };
+    }
+
+    private async Task<ComplaintDetail> ReadAsync(
+        IQueryable<Complaint> source,
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var row = await source
             .Where(c => c.Id == id)
-            .Select(c => new ComplaintDetail(
+            .Select(c => new DetailRow(
+                c.CitizenId,
+                c.Status,
+                c.AssignedStaffId,
+                new ComplaintDetail(
                 c.Id,
                 c.ReferenceNumber,
                 c.Title,
@@ -226,6 +298,9 @@ public class ComplaintService(
                 c.RejectionReason,
                 c.ResolutionNote,
                 c.ReopenCount,
+
+                // Filled in below — the guard table does not translate to SQL.
+                Array.Empty<ComplaintAction>(),
                 c.History
                     .OrderBy(h => h.ChangedAt)
                     .Select(h => new ComplaintHistoryEntry(
@@ -240,11 +315,52 @@ public class ComplaintService(
                         h.ChangedAt,
                         h.Note,
                         h.IsSystem))
-                    .ToList()))
+                    .ToList(),
+
+                // Empty until the M7 sweeper writes one; the timeline merges the two lists
+                // client-side rather than the API inventing a union type for them.
+                c.Escalations
+                    .OrderBy(e => e.RaisedAt)
+                    .Select(e => new EscalationEntry(e.Id, e.Level, e.RaisedAt))
+                    .ToList())))
             .SingleOrDefaultAsync(cancellationToken);
 
-        return complaint ?? throw new NotFoundException($"Complaint '{id}' was not found.");
+        if (row is null)
+        {
+            throw new NotFoundException($"Complaint '{id}' was not found.");
+        }
+
+        return row.Detail with
+        {
+            AvailableActions = AvailableActions(row.Status, row.AssignedStaffId, row.CitizenId),
+        };
     }
+
+    /// <summary>
+    /// What this caller may do, straight from the guard table. Ownership is passed in
+    /// because §12.3 cannot express it — the table does not know who the citizen is.
+    /// </summary>
+    private IReadOnlyList<ComplaintAction> AvailableActions(
+        ComplaintStatus status,
+        Guid? assignedStaffId,
+        Guid citizenId) =>
+        ComplaintStateMachine.AvailableActions(
+            status,
+            currentUser.Role,
+            currentUser.Id,
+            assignedStaffId,
+            isOwner: citizenId == currentUser.Id);
+
+    /// <summary>
+    /// Carries the three fields the guard table needs alongside the projection. They are
+    /// not on <see cref="ComplaintDetail"/> itself: <c>CitizenId</c> is identity a Staff
+    /// caller has no business receiving, and the other two are already there.
+    /// </summary>
+    private record DetailRow(
+        Guid CitizenId,
+        ComplaintStatus Status,
+        Guid? AssignedStaffId,
+        ComplaintDetail Detail);
 
     /// <summary>The history alone, for the timeline. Same scope, same 404 rule.</summary>
     public async Task<IReadOnlyList<ComplaintHistoryEntry>> GetHistoryAsync(

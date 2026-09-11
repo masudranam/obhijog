@@ -44,8 +44,15 @@ export interface RegisterRequest {
   phone?: string | null;
 }
 
-/** SPEC.md §12.2. The transition actions plus `Submit`, which only the server writes. */
-export type ComplaintAction =
+/**
+ * SPEC.md §12.2.
+ *
+ * The first eight are the guard table's vocabulary — the only values that may be sent to
+ * `POST /complaints/{id}/transitions`, and the only ones that ever appear in
+ * `availableActions`. `Submit` and `Priority` are history-only: the server writes them and
+ * a client can never send them.
+ */
+export type TransitionAction =
   | 'Assign'
   | 'Reassign'
   | 'Recategorize'
@@ -53,11 +60,15 @@ export type ComplaintAction =
   | 'Start'
   | 'Resolve'
   | 'Close'
-  | 'Reopen'
-  | 'Submit';
+  | 'Reopen';
+
+export type ComplaintAction = TransitionAction | 'Submit' | 'Priority';
 
 /** SPEC.md §8.4. */
 export type ComplaintPriority = 'Low' | 'Normal' | 'High' | 'Critical';
+
+/** SPEC.md §13.3 — the `slaState` list filter. Computed server-side, never here. */
+export type SlaState = 'OnTrack' | 'Warning' | 'Breached';
 
 /** SPEC.md §13.1 — a page is these four fields; there is no envelope to unwrap. */
 export interface Page<T> {
@@ -116,6 +127,14 @@ export interface ComplaintListItem {
   slaWarnedAt: string | null;
   escalationLevel: number;
   resolvedAt: string | null;
+  assignedStaffName: string | null;
+
+  /**
+   * What *this* caller may do to this complaint right now, straight from the guard table
+   * in `Obhijog.Domain` (§12.3). Buttons render from this and from nothing else — a
+   * `switch (status)` in a component would be a second copy of the table (§15).
+   */
+  availableActions: TransitionAction[];
 }
 
 export interface ComplaintHistoryEntry {
@@ -129,12 +148,7 @@ export interface ComplaintHistoryEntry {
   isSystem: boolean;
 }
 
-/**
- * `GET /complaints/{id}`.
- *
- * No `availableActions` yet — the guard table that computes it arrives with M6. The UI
- * therefore renders no action buttons in M4, rather than guessing at them.
- */
+/** `GET /complaints/{id}`. */
 export interface ComplaintDetail {
   id: string;
   referenceNumber: string;
@@ -162,6 +176,68 @@ export interface ComplaintDetail {
   resolutionNote: string | null;
   reopenCount: number;
   history: ComplaintHistoryEntry[];
+
+  /**
+   * The SLA ladder's rungs, for the F9 timeline. Empty until the M7 sweeper writes one.
+   * Carries no reason text — that names the notified supervisor, which is not a citizen's
+   * to see (§9.5).
+   */
+  escalations: EscalationEntry[];
+
+  /** See {@link ComplaintListItem.availableActions}. */
+  availableActions: TransitionAction[];
+}
+
+export interface EscalationEntry {
+  id: string;
+  level: number;
+  raisedAt: string;
+}
+
+/**
+ * `POST /complaints/{id}/transitions` — the single write path for a complaint's status
+ * (§12). There are no verb endpoints: `action` selects the row of the guard table, and the
+ * row says which of the other three fields is required.
+ */
+export interface TransitionRequest {
+  action: TransitionAction;
+  note?: string | null;
+  assigneeId?: string | null;
+  categoryId?: string | null;
+}
+
+/** `PUT /complaints/{id}/priority` — §12.4. Status-independent, so not a transition. */
+export interface ChangePriorityRequest {
+  priority: ComplaintPriority;
+}
+
+/**
+ * SPEC.md §9.4 — a comment on a complaint.
+ *
+ * An `isInternal` comment is filtered out of a Citizen's read **in the query**, so this
+ * type never carries one for them. The flag is still on the DTO because staff need to see
+ * which of their own notes are private.
+ */
+export interface Comment {
+  id: string;
+  body: string;
+  isInternal: boolean;
+  authorName: string;
+  createdAt: string;
+}
+
+export interface CreateCommentRequest {
+  body: string;
+  isInternal: boolean;
+}
+
+/** `GET /departments/{id}/staff` — the assignee picker's options. */
+export interface StaffMember {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  isActive: boolean;
 }
 
 /**

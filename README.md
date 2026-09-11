@@ -46,12 +46,20 @@ Not the CRUD. Three things:
 
 ## Status
 
-**M5 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
+**M6 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
 endpoints, the full data model with its migration, an idempotent seeder, JWT authentication with
 the three roles, complaint submission and photo attachments are in place: a citizen files a
 complaint with photos, gets a reference number and an SLA deadline, and anyone holding that
-reference can track it without an account. Complaints cannot be moved between statuses yet —
-that is M6.
+reference can track it without an account.
+
+Complaints now move. The twelve-row guard table of
+[SPEC §12.3](SPEC.md#123-the-guard-table) drives every status change through one endpoint, a
+department admin triages and assigns from the inbox, staff work their queue, and each complaint
+carries the actions *that* caller may take right now — so the UI renders buttons rather than
+re-deriving who may do what. Comments are in, and an internal note never reaches the reporter.
+
+The SLA clock does not tick yet: deadlines are stored and shown, but warning, breach, escalation
+and auto-close are M7.
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.
 

@@ -1,7 +1,7 @@
 <div class="page">
-  <a mat-button routerLink="/my" class="back">
+  <a mat-button [routerLink]="backTo()" class="back">
     <mat-icon>arrow_back</mat-icon>
-    All my complaints
+    Back
   </a>
 
   @if (result.isLoading()) {
@@ -13,13 +13,13 @@
       <mat-card-content>
         <h2>Not found</h2>
         <p class="muted">
-          This complaint does not exist, or it is not one of yours. If you were given a reference
+          This complaint does not exist, or it is not one you can see. If you were given a reference
           number, you can look it up on the tracking page without signing in.
         </p>
         <a mat-stroked-button routerLink="/track">Track by reference</a>
       </mat-card-content>
     </mat-card>
-  } @else if (result.value(); as complaint) {
+  } @else if (complaint(); as complaint) {
     <mat-card>
       <mat-card-header>
         <mat-card-title>{{ complaint.title }}</mat-card-title>
@@ -32,6 +32,7 @@
       <mat-card-content>
         <div class="badges">
           <app-status-chip [status]="complaint.status" />
+          <app-priority-chip [priority]="complaint.priority" />
           <app-sla-badge
             [slaDueAt]="complaint.slaDueAt"
             [slaWarnedAt]="complaint.slaWarnedAt"
@@ -70,6 +71,12 @@
               <dd>{{ complaint.resolvedAt | date: 'medium' }}</dd>
             </div>
           }
+          @if (complaint.reopenCount > 0) {
+            <div>
+              <dt>Reopened</dt>
+              <dd>{{ complaint.reopenCount }} time(s)</dd>
+            </div>
+          }
         </dl>
 
         @if (complaint.resolutionNote) {
@@ -87,11 +94,38 @@
 
         <mat-divider />
 
+        <h3>Actions</h3>
+        <app-complaint-actions
+          [complaint]="complaint"
+          [staff]="staff.value()"
+          [categories]="categories.value()"
+          (changed)="onChanged($event)"
+        />
+
+        @if (isDeptAdmin()) {
+          <!-- §12.4: priority is status-independent, so it is not one of the twelve rows
+               and does not belong in the action bar. The route is DeptAdmin-only server
+               side; hiding the control for everyone else is cosmetic. -->
+          <mat-form-field appearance="outline" class="priority">
+            <mat-label>Priority</mat-label>
+            <mat-select
+              [value]="complaint.priority"
+              (valueChange)="onPriority($event)"
+            >
+              @for (priority of priorities; track priority) {
+                <mat-option [value]="priority">{{ priority }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+        }
+
+        <mat-divider />
+
         <h3>Photos</h3>
         <app-attachment-gallery
           [complaintId]="complaint.id"
           [initial]="attachments.value()"
-          [canUpload]="true"
+          [canUpload]="isCitizen()"
         />
 
         <mat-divider />
@@ -107,14 +141,12 @@
 
         <h3>Progress</h3>
         <ol class="timeline">
-          @for (entry of complaint.history; track entry.id) {
-            <li>
+          @for (entry of timeline(); track entry.key) {
+            <li [class.escalation]="entry.escalation">
               <div class="dot"></div>
               <div class="entry">
-                <div class="what">
-                  {{ describe(entry.action, entry.changedByName, entry.isSystem) }}
-                </div>
-                <div class="when">{{ entry.changedAt | date: 'medium' }}</div>
+                <div class="what">{{ entry.what }}</div>
+                <div class="when">{{ entry.at | date: 'medium' }}</div>
                 @if (entry.note) {
                   <p class="entry-note">{{ entry.note }}</p>
                 }
@@ -122,6 +154,11 @@
             </li>
           }
         </ol>
+
+        <mat-divider />
+
+        <h3>Comments</h3>
+        <app-comment-thread [complaintId]="complaint.id" [canWriteInternal]="!isCitizen()" />
       </mat-card-content>
     </mat-card>
   }
