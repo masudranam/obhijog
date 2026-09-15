@@ -5,15 +5,24 @@
       <p class="sub">Open complaints in your department that are past their deadline.</p>
     </div>
 
-    <button matButton="filled" [disabled]="sweeping()" (click)="sweep()">
+    <button matButton="filled" [disabled]="busy()" (click)="onSweep()">
       <mat-icon>autorenew</mat-icon>
-      {{ sweeping() ? 'Sweeping…' : 'Run a sweep now' }}
+      {{ sweep.isLoading() ? 'Sweeping…' : 'Run a sweep now' }}
     </button>
   </header>
 
+  <!-- The counters the pass reported, verbatim. §14 F11. -->
+  @if (sweep.value(); as counters) {
+    <p class="counters">
+      Last sweep examined {{ counters.examined }}, warned {{ counters.warned }}, breached
+      {{ counters.breached }}, escalated {{ counters.escalatedLevel2 }} to level 2 and
+      auto-closed {{ counters.autoClosed }} in {{ counters.durationMs }}ms.
+    </p>
+  }
+
   <mat-card>
     <mat-card-content>
-      @if (result.isLoading() || sweeping()) {
+      @if (busy()) {
         <mat-progress-bar mode="indeterminate" />
       }
 

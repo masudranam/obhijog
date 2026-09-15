@@ -178,11 +178,17 @@ public class ComplaintTransitionService(
         var check = ComplaintStateMachine.Check(
             complaint.Status,
             ComplaintAction.Close,
-            // The role is unused when isSystem is set, but the parameter is not optional and
-            // passing a plausible-looking one would suggest the sweeper has a role. It does
-            // not: AllowSystem is a separate column of §12.3 precisely so that "the system"
-            // never has to impersonate a person.
-            UserRole.Citizen,
+
+            // The role is ignored once isSystem is set, but the parameter is not optional,
+            // so this passes the one role row 11 does **not** permit. AllowSystem is then
+            // the only thing authorising the close, and a mutation that drops isSystem
+            // fails closed instead of quietly succeeding on the role's own authority —
+            // which is exactly what happened when this said UserRole.Citizen, a role §12.3
+            // lets close a resolved complaint.
+            //
+            // AllowSystem is a separate column of §12.3 precisely so that "the system" never
+            // has to impersonate a person.
+            UserRole.Staff,
             Guid.Empty,
             complaint.AssignedStaffId,
             isSystem: true);

@@ -1,10 +1,9 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterLink } from '@angular/router';
@@ -41,12 +40,12 @@ import { StatusChip } from '../../../shared/status-chip/status-chip';
 })
 export class Breaches {
   private readonly sla = inject(SlaService);
-  private readonly snackBar = inject(MatSnackBar);
 
-  /** Bumped to make `rxResource` refetch after a manual sweep. */
-  private readonly reload = signal(0);
-
-  protected readonly sweeping = signal(false);
+  /**
+   * Zero until the button is pressed, which keeps {@link sweep} idle: `rxResource` does not
+   * request anything while its params are `undefined`. Bumping it triggers exactly one pass.
+   */
+  private readonly requested = signal(0);
 
   protected readonly columns = [
     'reference',
@@ -58,34 +57,31 @@ export class Breaches {
     'overdue',
   ];
 
-  protected readonly result = rxResource({
-    params: () => ({ reload: this.reload() }),
-    stream: () => this.sla.breaches(),
+  /**
+   * A resource rather than a `.subscribe()`, so teardown is handled and a navigation
+   * mid-request cannot leave a callback holding this component
+   * (`.claude/rules/frontend-angular.md`). Errors reach the snackbar through the
+   * interceptor chain; nothing is caught here.
+   */
+  protected readonly sweep = rxResource({
+    params: () => (this.requested() === 0 ? undefined : this.requested()),
+    stream: () => this.sla.sweep(),
   });
 
   /**
-   * Runs one pass and reloads. Errors are surfaced by the interceptor chain, so there is no
-   * `catchError` here — swallowing a failure into an unchanged list would be worse than the
-   * error (`.claude/rules/frontend-angular.md`).
+   * Re-reads whenever a sweep completes: the params signal reads `sweep.value()`, so a new
+   * counters object is a new request. No manual refresh call, and no chance of the list and
+   * the summary disagreeing about which pass they describe.
    */
-  protected sweep(): void {
-    this.sweeping.set(true);
+  protected readonly result = rxResource({
+    params: () => ({ after: this.sweep.value() }),
+    stream: () => this.sla.breaches(),
+  });
 
-    this.sla.sweep().subscribe({
-      next: (result) => {
-        this.sweeping.set(false);
-        this.reload.update((n) => n + 1);
+  protected readonly busy = computed(() => this.sweep.isLoading() || this.result.isLoading());
 
-        this.snackBar.open(
-          `Swept ${result.examined} complaint${result.examined === 1 ? '' : 's'}: ` +
-            `${result.warned} warned, ${result.breached} breached, ` +
-            `${result.escalatedLevel2} escalated, ${result.autoClosed} auto-closed.`,
-          'Dismiss',
-          { duration: 6000 },
-        );
-      },
-      error: () => this.sweeping.set(false),
-    });
+  protected onSweep(): void {
+    this.requested.update((n) => n + 1);
   }
 
   /** Display formatting of a server-supplied number. Not a threshold. */

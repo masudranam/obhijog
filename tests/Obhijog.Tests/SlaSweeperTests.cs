@@ -96,6 +96,46 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
     }
 
     /// <summary>
+    /// <b>The rungs are pinned at their exact thresholds, not somewhere near them.</b>
+    ///
+    /// Fixtures at 79 and 90 leave nine points of slack: a warning rung that had drifted to
+    /// 89 would satisfy both. These cases sit on the boundary itself, so 80 means 80 and
+    /// 150 means 150 — and "at or past" means <c>&gt;=</c>, not <c>&gt;</c>.
+    ///
+    /// The percentages come from <c>SlaOptions</c>, so this pins the configured default
+    /// rather than a constant hidden in the sweeper. Changing a default then becomes a
+    /// visible, deliberate edit to this table.
+    /// </summary>
+    [RequiresPostgresTheory]
+    [InlineData(79.9, false, false, 0)]
+    [InlineData(80, true, false, 0)]
+    [InlineData(99.9, true, false, 0)]
+    [InlineData(100, true, true, 1)]
+    [InlineData(149.9, true, true, 1)]
+    [InlineData(150, true, true, 2)]
+    public async Task EachRungFiresAtItsExactThreshold(
+        double elapsedPercent,
+        bool expectWarned,
+        bool expectBreached,
+        int expectedLevel)
+    {
+        await using var db = postgres.CreateContext();
+
+        // A long window, so a tenth of a percent is still minutes rather than milliseconds
+        // and the assertion is about the threshold rather than about clock resolution.
+        var world = await World.CreateAsync(db, slaHours: 1000);
+        var complaint = await world.ComplaintAsync(db, elapsedPercent, assigned: true);
+
+        await world.Sweeper(db).SweepAsync();
+
+        var swept = await Reload(db, complaint.Id);
+
+        Assert.Equal(expectWarned, swept.SlaWarnedAt is not null);
+        Assert.Equal(expectBreached, swept.SlaBreachedAt is not null);
+        Assert.Equal((short)expectedLevel, swept.EscalationLevel);
+    }
+
+    /// <summary>
     /// 100% elapsed: breached, level 1, one <c>EscalationEvent</c>, and — §11.2 —
     /// the assignee <b>and</b> every active Dept Admin notified.
     /// </summary>
@@ -177,8 +217,14 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
 
     /// <summary>
     /// A complaint that crossed 80% <b>and</b> 100% between two passes gets both markers in
-    /// one pass, in ladder order. Phase 1 commits before phase 2 queries, which is the only
-    /// reason this works — reordering the phases breaks it.
+    /// one pass.
+    ///
+    /// Warn and breach are independent — each has its own marker and its own predicate — so
+    /// swapping <i>those two</i> changes nothing observable, and this test does not claim
+    /// otherwise. The ordering that genuinely matters is breach before level 2: the breach
+    /// phase assigns <c>EscalationLevel = 1</c> outright, so running it after level 2 would
+    /// overwrite a 2 with a 1. <see cref="EscalatesToLevelTwoAtOneHundredAndFiftyPercent"/>
+    /// pins that, by asserting the complaint ends at 2.
     /// </summary>
     [RequiresPostgresFact]
     public async Task BothMarkersLandInOnePassWhenAComplaintCrossedBoth()
@@ -211,8 +257,14 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
     ///
     /// Two consecutive sweeps over the same overdue complaint must produce exactly one
     /// <c>EscalationEvent</c> per level and exactly one notification per recipient per
-    /// level. Delete the <c>SlaBreachedAt IS NULL</c> clause, or the
-    /// <c>EscalationLevel &lt; 2</c> clause, and this goes red.
+    /// level.
+    ///
+    /// The final-state assertions below are necessary and <b>not sufficient</b>, which is
+    /// worth stating plainly because it is the trap this suite fell into once: defence 3
+    /// rolls a duplicate insert back, so a sweep that wrongly <i>re-selected</i> the
+    /// complaint still leaves the rows looking perfect. Deleting defence 1 was therefore
+    /// invisible here until <see cref="ASecondPassDoesNotEvenAttemptTheWorkItAlreadyDid"/>
+    /// was added beside it. Read the two together.
     /// </summary>
     [RequiresPostgresFact]
     public async Task TwoSweepsProduceOneEscalationPerLevelAndOneNotificationPerRecipient()
@@ -244,6 +296,72 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
         Assert.Equal(1, afterFirst.WarningNotices);
         Assert.Equal(3, afterFirst.BreachNotices);
         Assert.Equal(2, afterFirst.Level2Notices);
+    }
+
+    /// <summary>
+    /// <b>Defence 1 of §11.3, pinned directly.</b> CLAUDE.md non-negotiable 4: the three
+    /// mechanisms are not redundant and none may be removed because the others cover it.
+    ///
+    /// The other two defences are what make this test necessary. Take away the
+    /// not-yet-done <c>WHERE</c> clause and the second pass re-selects a complaint it has
+    /// already escalated; the unique index then refuses the duplicate insert and the
+    /// per-complaint transaction rolls it back — so the rows, the counters and the
+    /// snapshots all still look exactly right. The only visible trace is the skip the
+    /// sweeper logs when the index turns it away.
+    ///
+    /// So this asserts on <b>what the pass attempted</b>, not on what survived it: a second
+    /// sweep must not touch this complaint at all. Delete <c>sla_warned_at IS NULL</c>,
+    /// <c>SlaBreachedAt == null</c> or <c>escalation_level &lt; 2</c> and this goes red
+    /// while every state-based test in the file stays green.
+    ///
+    /// Scoped to this complaint's own id rather than to "no warnings at all", because the
+    /// sweep is system-wide and a sibling test deliberately leaves a complaint in the state
+    /// that makes the index refuse it on every subsequent pass.
+    /// </summary>
+    [RequiresPostgresFact]
+    public async Task ASecondPassDoesNotEvenAttemptTheWorkItAlreadyDid()
+    {
+        await using var db = postgres.CreateContext();
+        var world = await World.CreateAsync(db);
+
+        // 170%, so the first pass climbs all three rungs and every not-yet-done clause has
+        // something to exclude on the second.
+        var complaint = await world.ComplaintAsync(db, elapsedPercent: 170, assigned: true);
+
+        await world.Sweeper(db).SweepAsync();
+
+        var log = new RecordingLogger<SlaSweeper>();
+        await world.Sweeper(db, logger: log).SweepAsync();
+
+        var touched = log.Entries
+            .Where(e => e.Message.Contains(complaint.Id.ToString()))
+            .Select(e => e.Message)
+            .ToList();
+
+        Assert.Empty(touched);
+    }
+
+    /// <summary>
+    /// The same property for the rung that writes no <c>EscalationEvent</c>. A warning has
+    /// no unique index behind it, so removing <c>sla_warned_at IS NULL</c> would not be
+    /// refused by anything — it would quietly send the assignee a fresh warning every
+    /// minute until the complaint breached.
+    /// </summary>
+    [RequiresPostgresFact]
+    public async Task AWarnedComplaintIsNotWarnedAgainOnEveryPass()
+    {
+        await using var db = postgres.CreateContext();
+        var world = await World.CreateAsync(db);
+        var complaint = await world.ComplaintAsync(db, elapsedPercent: 90, assigned: true);
+
+        await world.Sweeper(db).SweepAsync();
+
+        for (var pass = 0; pass < 4; pass++)
+        {
+            await world.Sweeper(db).SweepAsync();
+        }
+
+        Assert.Single(await NotificationsFor(db, complaint.Id, NotificationType.SlaWarning));
     }
 
     /// <summary>
@@ -474,6 +592,65 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
             .CountAsync(h => h.ComplaintId == complaint.Id && h.IsSystem);
 
         Assert.Equal(1, closures);
+    }
+
+    /// <summary>
+    /// <b>The auto-close still asks the guard table.</b> CLAUDE.md non-negotiable 3.
+    ///
+    /// <c>AutoCloseAsync</c> only ever selects <c>Resolved</c> complaints, so in normal
+    /// operation the guard-table consultation inside <c>CloseAsSystemAsync</c> never says
+    /// no — which means deleting it would go unnoticed. This calls that method directly on
+    /// a complaint the table forbids closing, so the check is load-bearing rather than
+    /// decorative.
+    ///
+    /// <c>New → close</c> is an absent pair: §12.3 has exactly one <c>close</c> row and it
+    /// starts at <c>Resolved</c>. The method must refuse and leave the complaint alone.
+    /// </summary>
+    [RequiresPostgresTheory]
+    [InlineData(ComplaintStatus.New)]
+    [InlineData(ComplaintStatus.Assigned)]
+    [InlineData(ComplaintStatus.InProgress)]
+    [InlineData(ComplaintStatus.Rejected)]
+    public async Task TheSystemCannotCloseAComplaintTheGuardTableDoesNotAllow(
+        ComplaintStatus status)
+    {
+        await using var db = postgres.CreateContext();
+        var world = await World.CreateAsync(db);
+        var complaint = await world.ComplaintAsync(db, elapsedPercent: 50, status: status);
+
+        var closed = await world.SystemCloseAsync(db, complaint.Id);
+
+        Assert.False(closed);
+
+        var untouched = await Reload(db, complaint.Id);
+        Assert.Equal(status, untouched.Status);
+        Assert.Null(untouched.ClosedAt);
+
+        Assert.Empty(await db.ComplaintStatusHistories
+            .AsNoTracking()
+            .Where(h => h.ComplaintId == complaint.Id && h.IsSystem)
+            .ToListAsync());
+    }
+
+    /// <summary>
+    /// And it says yes to the one row that permits it — row 11, the only rule in §12.3
+    /// carrying <c>AllowSystem</c>. Asserted next to the refusals above so neither half can
+    /// be satisfied by a method that simply always returns the same answer.
+    /// </summary>
+    [RequiresPostgresFact]
+    public async Task TheSystemMayCloseAResolvedComplaint()
+    {
+        await using var db = postgres.CreateContext();
+        var world = await World.CreateAsync(db);
+
+        var complaint = await world.ComplaintAsync(
+            db,
+            elapsedPercent: 50,
+            status: ComplaintStatus.Resolved,
+            resolvedAt: Noon.AddDays(-8));
+
+        Assert.True(await world.SystemCloseAsync(db, complaint.Id));
+        Assert.Equal(ComplaintStatus.Closed, (await Reload(db, complaint.Id)).Status);
     }
 
     // -----------------------------------------------------------------------------------
@@ -939,6 +1116,15 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
 
         public ComplaintTransitionService AsAdmin(ObhijogDbContext db) =>
             Transitions(db, AdminId, UserRole.DeptAdmin);
+
+        /// <summary>
+        /// The sweeper's own auto-close path, reached the way the sweeper reaches it: with
+        /// no caller at all. <c>CloseAsSystemAsync</c> is <c>internal</c>, and the test
+        /// project already sees internals of Infrastructure.
+        /// </summary>
+        public Task<bool> SystemCloseAsync(ObhijogDbContext db, Guid complaintId) =>
+            Transitions(db, Guid.Empty, UserRole.Citizen, authenticated: false)
+                .CloseAsSystemAsync(complaintId, "Auto-closed by the test.", Clock.GetUtcNow());
 
         private ComplaintTransitionService Transitions(
             ObhijogDbContext db,

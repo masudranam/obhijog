@@ -66,3 +66,12 @@ table {
   font-weight: 600;
   color: #b71c1c;
 }
+
+.counters {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
