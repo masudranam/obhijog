@@ -1009,7 +1009,11 @@ that delivers it is in the heading; §20 is the live tracker.
   named here as the follow-up rather than half-built (see D10).
 - `Dockerfile` for the API: multi-stage, non-root, builds.
 - `.github/workflows/deploy.yml` is **`workflow_dispatch` only** — it never fires on push.
-- Acceptance: `az deployment group what-if` reports no errors. Actually deploying is optional.
+- Acceptance: the template compiles and lints clean, and the compiled ARM contains no `0.0.0.0`
+  and no `firewallRules` — all four checked by the CI `infra gate` on every commit.
+  `az deployment group what-if` reporting no errors is the acceptance criterion for an
+  environment that has a subscription behind it; see the note below. Actually deploying is
+  optional.
 - **What CI can and cannot check.** `az bicep build`, `az bicep build-params` and `az bicep lint`
   are a compiler and a static analyser: no subscription, no credential, no network. They run in the
   `infra gate` job on every SHA, and `infra/bicepconfig.json` raises the rules this milestone leans

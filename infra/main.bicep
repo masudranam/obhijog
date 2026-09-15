@@ -9,9 +9,12 @@
 //      parameters with no defaults, are written into Key Vault here, and are read back by
 //      the Container App as Key Vault references. None is ever emitted as an output — a
 //      deployment output is readable by anyone with reader on the resource group.
-//   2. **No `0.0.0.0` firewall rule, not even briefly.** The database is VNet-injected,
-//      which does not merely close the public endpoint: the server has none, and flexible
-//      server rejects firewall rules outright in that mode.
+//   2. **No `0.0.0.0` firewall rule, not even briefly.** The database is VNet-injected, so
+//      it has no public endpoint and Azure rejects a firewall rule against it at deploy
+//      time. Note what that does *not* say: Bicep will compile a firewall rule here
+//      without complaint, so the CI `infra gate` greps the compiled ARM for `0.0.0.0` and
+//      for `firewallRules` and fails on either. Azure enforcing it is not the same as this
+//      repository enforcing it, and only the second one catches the mistake before it ships.
 //   3. **Every §19 key that varies by environment is a parameter**, passed to the container
 //      as an environment variable. The image's `appsettings.json` defaults are a fallback
 //      for a laptop, not the source of truth for a deployed environment.
@@ -277,10 +280,13 @@ resource postgresDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@
 
 // --- database ---------------------------------------------------------------------------------
 
-// Note what is absent: there is no `flexibleServers/firewallRules` resource in this file, and
-// there cannot be one. Supplying `network.delegatedSubnetResourceId` selects private access,
-// and private access has no firewall to add a rule to — the `0.0.0.0` rule F15 forbids is not
-// merely omitted here, it is unrepresentable.
+// Note what is absent: there is no `flexibleServers/firewallRules` resource in this file.
+// Supplying `network.delegatedSubnetResourceId` selects private access, and a privately
+// accessed server has no firewall for a rule to attach to, so Azure would reject one.
+//
+// Adding one here would still *compile*, though — that was checked, not assumed — which is
+// why `.github/workflows/ci.yml` greps the compiled ARM for `0.0.0.0` and `firewallRules`
+// and fails the build on either. Deleting that step is how this comment becomes untrue.
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: 'psql-${baseName}'
   location: location

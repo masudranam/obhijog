@@ -55,8 +55,10 @@ with a leading `=`, `+`, `-` or `@` neutralised.
 **The Azure footprint exists as code, and has never been deployed.** `infra/main.bicep` is the
 whole thing — a Burstable PostgreSQL flexible server, a private blob container, Key Vault, a
 Container Apps environment and app, a Static Web App, and a user-assigned identity carrying the
-role assignments. The database is VNet-injected, so it has no public endpoint and no firewall rule
-is representable. The three secrets arrive as `@secure()` parameters, land in Key Vault, and come
+role assignments. The database is VNet-injected, so it has no public endpoint and Azure rejects a
+firewall rule against it. Bicep would still compile one, so the `infra gate` greps the compiled ARM
+for `0.0.0.0` and `firewallRules` and fails on either — that step is the enforcement, not the
+comment next to it. The three secrets arrive as `@secure()` parameters, land in Key Vault, and come
 back as Key Vault references; none is a deployment output. `.github/workflows/deploy.yml` is
 `workflow_dispatch` only.
 

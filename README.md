@@ -76,8 +76,9 @@ There is now something to deploy it with. `infra/main.bicep` stands up the whole
 Burstable PostgreSQL flexible server, a private blob container, Key Vault, a Container Apps
 environment and app, a Static Web App, and a managed identity carrying the role assignments — with
 the database reachable only over the VNet. Not "the public endpoint is closed": the server is
-VNet-injected, so it has no public endpoint and flexible server will not accept a firewall rule at
-all. No secret is a literal anywhere: three `@secure()` parameters arrive from the environment, land
+VNet-injected, so it has no public endpoint and Azure will not accept a firewall rule against it.
+Bicep, however, will happily compile one — so CI greps the compiled template for `0.0.0.0` and for
+`firewallRules` on every commit and fails on either. No secret is a literal anywhere: three `@secure()` parameters arrive from the environment, land
 in Key Vault, and come back as Key Vault references, and none of them is ever a deployment output.
 `.github/workflows/deploy.yml` is dispatch-only and previews with `what-if` before it applies.
 
