@@ -150,6 +150,58 @@ jobs:
       - run: npm run build
         working-directory: web
 
+  # Infrastructure. `az bicep build` is a compiler, not a deployment: it needs no
+  # subscription, no credential and no network, so the template is type-checked on the exact
+  # SHA that merges rather than once, by hand, on a laptop. `az bicep lint` then applies
+  # infra/bicepconfig.json, where the rules that back this milestone's claims — no secret in
+  # an output, no default on a secure parameter — are set to `error` rather than `warning`.
+  #
+  # What this job does NOT do is `az deployment group what-if`, which needs an authenticated
+  # subscription. That runs from .github/workflows/deploy.yml, by hand, against a real one.
+  infra:
+    name: infra gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned rather than taken from whatever the runner image ships, so a Bicep release
+      # cannot turn a green gate red overnight without a commit saying so.
+      - name: install bicep
+        run: az bicep install --version v0.31.92
+
+      - name: compile the template
+        run: az bicep build --file infra/main.bicep --outfile /dev/null
+
+      # Compiles the parameter file against the template: a parameter renamed in main.bicep
+      # and not here is an error, which is the failure this catches.
+      #
+      # main.bicepparam reads the three secure parameters from the environment with no
+      # fallback, so it will not compile without them. These are generated here, used by a
+      # compiler, and thrown away with the runner — they are not credentials to anything,
+      # they reach no service, and they are not the §19 literal exception either, because
+      # nothing is written down. Hard-coding placeholders instead would put credential-shaped
+      # strings in a committed file for no gain.
+      - name: compile the parameters
+        env:
+          OBHIJOG_POSTGRES_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Aa1!aA
+          OBHIJOG_JWT_SIGNING_KEY: ${{ github.sha }}${{ github.sha }}
+          OBHIJOG_SEED_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Aa1!aA
+        run: az bicep build-params --file infra/main.bicepparam --outfile /dev/null
+
+      - name: lint
+        run: az bicep lint --file infra/main.bicep
+
+      # F15 says the API image builds. Asserting it and verifying it are different things.
+      # No push: CI proves it compiles, deploy.yml is what publishes it.
+      - name: build the api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # The hooks and the verdict recorder gate every merge. A syntax error in one of
   # them fails open, which is the worst way for a gate to fail — so this job runs
   # from the very first commit, before there is any application code.

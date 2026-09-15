@@ -1,0 +1,28 @@
+# Keep the build context small and, more importantly, keep anything secret out of it.
+# Everything here would otherwise be shipped to the daemon and could land in a layer.
+
+**/.env
+**/.env.*
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/TestResults/
+
+.git/
+.github/
+.claude/
+.vs/
+.vscode/
+.idea/
+
+web/
+docs/
+functions/
+infra/
+
+**/*.user
+**/*.suo
+**/.DS_Store
+Dockerfile
+.dockerignore

@@ -46,7 +46,7 @@ Not the CRUD. Three things:
 
 ## Status
 
-**M8 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
+**M9 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
 endpoints, the full data model with its migration, an idempotent seeder, JWT authentication with
 the three roles, complaint submission and photo attachments are in place: a citizen files a
 complaint with photos, gets a reference number and an SLA deadline, and anyone holding that
@@ -72,7 +72,19 @@ what they are looking at as CSV, sharing the list's filter and scope code rather
 implementation of it, with every field quoted and anything a spreadsheet would treat as a formula
 defused first.
 
-Nothing is deployed yet: the Bicep and the deploy workflow are M9.
+There is now something to deploy it with. `infra/main.bicep` stands up the whole footprint — a
+Burstable PostgreSQL flexible server, a private blob container, Key Vault, a Container Apps
+environment and app, a Static Web App, and a managed identity carrying the role assignments — with
+the database reachable only over the VNet. Not "the public endpoint is closed": the server is
+VNet-injected, so it has no public endpoint and flexible server will not accept a firewall rule at
+all. No secret is a literal anywhere: three `@secure()` parameters arrive from the environment, land
+in Key Vault, and come back as Key Vault references, and none of them is ever a deployment output.
+`.github/workflows/deploy.yml` is dispatch-only and previews with `what-if` before it applies.
+
+**It has not been deployed.** `what-if` needs an authenticated subscription, which this project
+does not have; what is actually verified is that the template compiles and lints clean in CI on
+every SHA, and that the API image builds and answers `/health`.
+
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.
 
