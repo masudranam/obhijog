@@ -31,7 +31,7 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1–M6 are done; M7 (issue #8) is next.** On top of the schema, the seeder and authentication,
+**M1–M7 are done; M8 (issue #9) is next.** On top of the schema, the seeder and authentication,
 a citizen can file a complaint, attach photos to it, and track it by reference without signing in.
 `ComplaintQueryScope` is in place and every complaint query goes through it. The guard table now
 exists: all twelve rows of §12.3 live in `ComplaintStateMachine`, `ComplaintTransitionService` is
@@ -39,9 +39,15 @@ the only write path for a status, every DTO carries `availableActions`, and the 
 department inbox drive the whole lifecycle from the UI. Comments are in, with the §9.4 internal
 filter applied in the query.
 
-**The SLA clock does not tick yet.** `SlaDueAt` is stored and rendered, but nothing warns,
-breaches, escalates or auto-closes — that is M7, and `escalations` is an empty list on every
-complaint until it lands.
+**The SLA clock now ticks.** `SlaSweeper` walks the four phases of §11.2 — warn, breach,
+level 2, auto-close — driven by `SlaSweepService` every `Sla:SweepIntervalSeconds` and by
+`POST /admin/sla/sweep` by hand, both calling the same method. All three idempotency defences
+of §11.3 are in place and a second pass provably changes nothing. `complaint.Status = …` is
+still only in `ComplaintTransitionService`: the sweeper's auto-close goes through
+`CloseAsSystemAsync` and row 11 of the guard table.
+
+**There is no dashboard and no export yet.** `GET /dashboard/summary` and
+`GET /complaints/export` are M8.
 The roadmap table in §20 is the live progress
 tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
 starting anything; tick the box in the milestone's own PR, only once the DoD really passes.

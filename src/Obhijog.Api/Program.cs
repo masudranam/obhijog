@@ -14,10 +14,12 @@ using Obhijog.Infrastructure.Attachments;
 using Obhijog.Infrastructure.Auth;
 using Obhijog.Infrastructure.Complaints;
 using Obhijog.Infrastructure.Identity;
+using Obhijog.Infrastructure.Notifications;
 using Obhijog.Infrastructure.Options;
 using Obhijog.Infrastructure.Persistence;
 using Obhijog.Infrastructure.Persistence.Seeding;
 using Obhijog.Infrastructure.Reference;
+using Obhijog.Infrastructure.Sla;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,6 +47,25 @@ builder.Services.AddOptions<AttachmentOptions>()
         o => o.AllowedContentTypeSet.Count > 0,
         "Attachments:AllowedContentTypes must name at least one type. It is an allow-list, "
         + "so an empty value rejects every upload (SPEC.md §19).")
+    .ValidateOnStart();
+
+// The ladder's rungs are configuration, not constants, so they are validated where every
+// other option is. EscalationLevel2Percent > 100 and WarningThresholdPercent < 100 are
+// enforced by the [Range] attributes; this checks the one relationship between them that
+// an attribute cannot see — the warning must come strictly before the breach, or the two
+// rungs fire together and the ladder has one step (SPEC.md §11.2).
+builder.Services.AddOptions<SlaOptions>()
+    .Bind(builder.Configuration.GetSection(SlaOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(
+        o => o.WarningThresholdPercent < 100 && o.EscalationLevel2Percent > 100,
+        "Sla:WarningThresholdPercent must be below 100 and Sla:EscalationLevel2Percent above "
+        + "it — the ladder of SPEC.md §11.2 is warn, then breach, then escalate.")
+    .ValidateOnStart();
+
+builder.Services.AddOptions<NotificationOptions>()
+    .Bind(builder.Configuration.GetSection(NotificationOptions.SectionName))
+    .ValidateDataAnnotations()
     .ValidateOnStart();
 
 // IsNullOrWhiteSpace, not a null check: an empty value in appsettings.json binds to ""
@@ -108,6 +129,17 @@ builder.Services.AddScoped<AttachmentService>();
 builder.Services.AddScoped<ComplaintTransitionService>();
 builder.Services.AddScoped<CommentService>();
 builder.Services.AddScoped<IAttachmentStore, BlobAttachmentStore>();
+builder.Services.AddScoped<SlaService>();
+builder.Services.AddScoped<ISlaSweeper, SlaSweeper>();
+
+// The MVP channel of F12. Swapping in email is a different registration here and no other
+// change anywhere — the sweeper writes the row and never formats a message for a channel.
+builder.Services.AddScoped<INotificationSender, LogNotificationSender>();
+
+// Registered unconditionally; Sla:SweepIntervalSeconds = 0 makes it return immediately with
+// a log line saying so. Skipping the registration instead would make a disabled sweeper
+// indistinguishable at runtime from one that was never wired up (§19).
+builder.Services.AddHostedService<SlaSweepService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<DatabaseSeeder>();
@@ -160,6 +192,7 @@ api.MapAuthEndpoints();
 api.MapReferenceEndpoints();
 api.MapComplaintEndpoints();
 api.MapAttachmentEndpoints();
+api.MapSlaEndpoints();
 
 // Before serving. In Azure the container comes from Bicep and this is a no-op; locally
 // nothing else creates it, and /health/ready is 503 until it exists.

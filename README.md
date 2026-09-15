@@ -46,7 +46,7 @@ Not the CRUD. Three things:
 
 ## Status
 
-**M6 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
+**M7 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
 endpoints, the full data model with its migration, an idempotent seeder, JWT authentication with
 the three roles, complaint submission and photo attachments are in place: a citizen files a
 complaint with photos, gets a reference number and an SLA deadline, and anyone holding that
@@ -58,8 +58,14 @@ department admin triages and assigns from the inbox, staff work their queue, and
 carries the actions *that* caller may take right now — so the UI renders buttons rather than
 re-deriving who may do what. Comments are in, and an internal note never reaches the reporter.
 
-The SLA clock does not tick yet: deadlines are stored and shown, but warning, breach, escalation
-and auto-close are M7.
+The SLA clock ticks. A sweep runs every minute — and on demand from the breach screen — warning
+a complaint at 80% of its window, breaching it at 100%, escalating it again at 150%, and closing a
+resolved complaint nobody came back to after seven days. Each rung writes its escalation and its
+notifications in one transaction, and **running the sweep twice produces exactly what running it
+once did**: that is the property the whole feature rests on and it has its own suite against a
+real PostgreSQL. A department admin sees their overdue work on `/breaches`, worst first.
+
+The dashboard and the CSV export are M8.
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.
 

@@ -68,4 +68,78 @@ public static class SeedData
         yield return new UserSeed("citizen1@example.test", "Aminul Islam", UserRole.Citizen, null);
         yield return new UserSeed("citizen2@example.test", "Rehana Begum", UserRole.Citizen, null);
     }
+
+    /// <summary>
+    /// One deliberately overdue complaint. SPEC.md §8.11, M7.
+    /// </summary>
+    /// <param name="Title">
+    /// The natural key. Complaints have no business key of their own — the reference number
+    /// is allocated from a sequence and differs every run — so idempotency matches on the
+    /// title, which is why these three are worded distinctively enough not to collide with
+    /// anything a citizen would file.
+    /// </param>
+    /// <param name="ElapsedPercent">
+    /// How far through its SLA window the complaint should be **at the moment the seeder
+    /// runs**. Its <c>CreatedAt</c> is computed backwards from
+    /// <c>TimeProvider.GetUtcNow()</c> so it is still overdue whenever seeding happens,
+    /// rather than at a fixed date that goes stale (§8.11).
+    /// </param>
+    public record OverdueComplaintSeed(
+        string Title,
+        string Description,
+        string CategoryName,
+        string CitizenEmail,
+        double ElapsedPercent,
+        decimal Latitude,
+        decimal Longitude,
+        string AddressText);
+
+    /// <summary>
+    /// The three rungs of §11.2, made demonstrable without waiting real hours: one past the
+    /// 80% warning, one past the 100% breach, one past the 150% second escalation. A single
+    /// sweep after seeding warns the first, breaches the second, and breaches *and*
+    /// escalates the third.
+    ///
+    /// All three are left <c>New</c> and unassigned. That is not laziness about coverage —
+    /// <c>complaint.Status = …</c> exists in exactly one file (CLAUDE.md non-negotiable 3)
+    /// and a seeder that assigned its way to <c>InProgress</c> would either break that or
+    /// need a signed-in user it does not have. Unassigned also exercises the recipient rule
+    /// that is easiest to get wrong: with nobody holding the complaint, §11.2 sends the
+    /// warning to every active Dept Admin instead.
+    /// </summary>
+    public static readonly OverdueComplaintSeed[] OverdueComplaints =
+    [
+        new(
+            "Seeded demo — mains leak flooding the lane (past 80%)",
+            "A mains pipe has been leaking into the lane since the early morning and the "
+            + "water is now standing ankle-deep outside the shops.",
+            "Water leak — main",
+            "citizen1@example.test",
+            ElapsedPercent: 90,
+            23.7461m,
+            90.3742m,
+            "Lane 4, Dhanmondi"),
+
+        new(
+            "Seeded demo — drain blocked outside the school (past 100%)",
+            "The storm drain at the school gate is completely blocked and the overflow is "
+            + "crossing the footpath the children use.",
+            "Blocked drain",
+            "citizen1@example.test",
+            ElapsedPercent: 120,
+            23.7509m,
+            90.3934m,
+            "School Road, Kalabagan"),
+
+        new(
+            "Seeded demo — streetlight out on the main road (past 150%)",
+            "The streetlight at the main road junction has been out for days and the "
+            + "crossing is unlit after sunset.",
+            "Broken streetlight",
+            "citizen2@example.test",
+            ElapsedPercent: 170,
+            23.7806m,
+            90.4074m,
+            "Mohakhali junction"),
+    ];
 }

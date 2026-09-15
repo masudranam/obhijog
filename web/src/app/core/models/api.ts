@@ -280,6 +280,38 @@ export interface Attachment {
   readUrl: string;
 }
 
+/**
+ * One row of `GET /sla/breaches`. SPEC.md §14 F12.
+ *
+ * `hoursOverdue` is computed server-side, against the server's clock, so the figure here
+ * matches the one in the dashboard and the CSV export. It is a value the client renders,
+ * not a threshold it evaluates — what counts as breached was decided by the sweeper and is
+ * recorded in `slaBreachedAt` (§11.2, §15).
+ */
+export interface SlaBreach {
+  id: string;
+  referenceNumber: string;
+  title: string;
+  categoryName: string;
+  status: ComplaintStatus;
+  priority: ComplaintPriority;
+  assignedStaffName: string | null;
+  slaDueAt: string;
+  slaBreachedAt: string;
+  escalationLevel: number;
+  hoursOverdue: number;
+}
+
+/** What `POST /admin/sla/sweep` reports. SPEC.md §14 F11. */
+export interface SlaSweepResult {
+  examined: number;
+  warned: number;
+  breached: number;
+  escalatedLevel2: number;
+  autoClosed: number;
+  durationMs: number;
+}
+
 /** RFC 9457, as SPEC.md §13.1 requires on every non-2xx. */
 export interface ProblemDetails {
   type?: string;
