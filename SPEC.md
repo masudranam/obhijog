@@ -1137,9 +1137,10 @@ limiting, CAPTCHA, soft delete, GDPR erasure.
 
 ## 18. Testing strategy
 
-**A deliberately small bar.** Four suites, chosen because each covers logic that is easy to get
-wrong and expensive to get wrong. Do not add coverage beyond this out of habit; a pull request that
-adds a fifth suite needs a reason in its description.
+**A deliberately small bar.** Four suites at the outset, chosen because each covers logic that is
+easy to get wrong and expensive to get wrong; two more have since earned their place, each with the
+reason recorded below. Do not add coverage beyond this out of habit; a pull request that adds a
+seventh suite needs a reason in its description.
 
 | Suite | File | Covers |
 |---|---|---|
@@ -1147,12 +1148,19 @@ adds a fifth suite needs a reason in its description.
 | SLA arithmetic | `tests/Obhijog.Tests/SlaPolicyTests.cs` | `DueAt`, `AtPercent`, `WarnAt`, `Level2At`, `ElapsedPercent`, driven by a fake `TimeProvider`. Pure, so no database |
 | Sweep idempotency | `tests/Obhijog.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days; the unique index refusing a duplicate and the sweep surviving it; the §11.4 clock effects — the recategorize recompute and the reopen reset |
 | Role scoping | `tests/Obhijog.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
+| Dashboard & export | `tests/Obhijog.Tests/DashboardAndExportTests.cs` | every F13 figure against a hand-counted fixture; a Citizen's scope; the export returning exactly what the list returns; **CSV injection — a title beginning with `=`, `+`, `-` or `@`** |
 | Token rotation | `tests/Obhijog.Tests/RefreshTokenRotationTests.cs` | rotation revokes the presented token; **reuse of a revoked token revokes the whole family**; an unknown token revokes nothing; expiry; logout revokes one device; a deactivated account cannot refresh; the claims a token carries, validated through the API's own parameters |
 
 - Sweep and scope tests run against **EF Core on a real PostgreSQL** where one is reachable, and are
   **skipped with a visible message** otherwise — never silently reported as passing. They must not
   use the EF in-memory provider: it has no transactions, no `xmin`, no unique-index enforcement and
   no `ILIKE`, so it would silently pass the exact cases §11.3 exists to guarantee.
+- **Dashboard & export is the sixth suite, added in M8 with the reason §18 requires.** Two of
+  M8's acceptance criteria are stated as tests rather than as behaviour: "every figure matches a
+  hand count over the seed data", and "CSV injection neutralised — a test covers a title beginning
+  with `=`". The first guards ten aggregates that are each individually plausible when wrong; the
+  second is a security control whose failure is a spreadsheet executing a citizen's complaint title
+  on a clerk's machine. Neither is visible from outside. The bar is now six suites, not seven.
 - **Token rotation was the fifth suite, added in M3 with the reason §18 requires.** The M3
   Definition of Done names family revocation as an acceptance criterion, and this table
   predates any token existing. Its one failure mode that matters — a stolen refresh token
@@ -1261,7 +1269,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☑ |
 | M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☑ |
 | M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☑ |
-| M8 | #9 | Dashboard & CSV export | F13, F14 | M7 | Every dashboard figure matches a hand count on seed data; the export shares the list's filter and scope code; CSV injection neutralised | ☐ |
+| M8 | #9 | Dashboard & CSV export | F13, F14 | M7 | Every dashboard figure matches a hand count on seed data; the export shares the list's filter and scope code; CSV injection neutralised | ☑ |
 | M9 | #10 | Bicep & deploy workflow | F15 | M8 | `az deployment group what-if` is clean; the API image builds; the deploy workflow is dispatch-only; no secret literals | ☐ |
 | M10 | #11 | **Stretch** — Service Bus + Functions escalation | F16 | M7 | A breach publishes to Service Bus; the Function writes the notifications; a redelivered message is provably harmless; `InProcess` still works | ☐ |
 

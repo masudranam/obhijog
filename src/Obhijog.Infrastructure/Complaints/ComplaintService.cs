@@ -154,13 +154,7 @@ public class ComplaintService(
         // from asking for too many.
         var pageSize = query.PageSize <= 0 ? ComplaintListQuery.DefaultPageSize : query.PageSize;
 
-        var scoped = ComplaintQueryScope.For(db.Complaints.AsNoTracking(), currentUser);
-        scoped = ComplaintQueryScope.WithRequestedDepartment(
-            scoped,
-            currentUser,
-            query.DepartmentId);
-
-        var filtered = ApplyFilters(scoped, query);
+        var filtered = ScopedAndFiltered(query);
         var total = await filtered.CountAsync(cancellationToken);
 
         var rows = await ApplySort(filtered, query.Sort)
@@ -434,6 +428,37 @@ public class ComplaintService(
     }
 
     // ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// <b>The one query the list and the CSV export share.</b> SPEC.md §14 F14: the export
+    /// "applies the <b>same</b> filter and scope code as the list endpoint. A divergence
+    /// between the two is a bug, not a feature."
+    ///
+    /// Sharing it is structural rather than a promise: <c>ApplyFilters</c> stays private, so
+    /// there is no way for a second caller to rebuild the filter chain slightly differently.
+    /// Both callers get scope first and filters second — in that order, so no filter can
+    /// widen what the caller may see (§9.3).
+    ///
+    /// Sorting is deliberately <i>not</i> applied here. The list pages and therefore must
+    /// sort; a <c>COUNT</c> over a sorted query is wasted work, and the export orders once
+    /// at the point of streaming. Both call <see cref="ApplySort"/>, which is the other half
+    /// of the shared behaviour.
+    /// </summary>
+    internal IQueryable<Complaint> ScopedAndFiltered(ComplaintListQuery query)
+    {
+        var scoped = ComplaintQueryScope.For(db.Complaints.AsNoTracking(), currentUser);
+
+        scoped = ComplaintQueryScope.WithRequestedDepartment(
+            scoped,
+            currentUser,
+            query.DepartmentId);
+
+        return ApplyFilters(scoped, query);
+    }
+
+    /// <summary>The export's half of the shared sort. See <see cref="ScopedAndFiltered"/>.</summary>
+    internal static IQueryable<Complaint> Sorted(IQueryable<Complaint> source, string? sort) =>
+        ApplySort(source, sort);
 
     private IQueryable<Complaint> ApplyFilters(IQueryable<Complaint> source, ComplaintListQuery query)
     {

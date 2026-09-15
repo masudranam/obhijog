@@ -1,15 +1,19 @@
 <div class="page">
   <header class="head">
     <h1>Department inbox</h1>
-    <mat-button-toggle-group
-      [value]="bucket()"
-      (valueChange)="onBucket($event)"
-      aria-label="Which complaints to show"
-    >
-      @for (item of buckets; track item.value) {
-        <mat-button-toggle [value]="item.value">{{ item.label }}</mat-button-toggle>
-      }
-    </mat-button-toggle-group>
+    <div class="head-actions">
+      <mat-button-toggle-group
+        [value]="bucket()"
+        (valueChange)="onBucket($event)"
+        aria-label="Which complaints to show"
+      >
+        @for (item of buckets; track item.value) {
+          <mat-button-toggle [value]="item.value">{{ item.label }}</mat-button-toggle>
+        }
+      </mat-button-toggle-group>
+
+      <app-export-button [filter]="exportFilter()" />
+    </div>
   </header>
 
   <mat-card>

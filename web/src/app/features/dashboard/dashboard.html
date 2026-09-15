@@ -1,0 +1,97 @@
+<div class="page">
+  <header class="head">
+    <h1>Dashboard</h1>
+    <p class="sub">{{ caption() }}</p>
+  </header>
+
+  @if (result.isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  @if (result.error()) {
+    <p class="empty">That did not load. Try again in a moment.</p>
+  } @else if (result.hasValue()) {
+    <section class="tiles">
+      @for (tile of tiles(); track tile.label) {
+        @if (tile.link) {
+          <a
+            class="tile"
+            [class]="tile.tone"
+            [routerLink]="tile.link[0]"
+            [queryParams]="tile.link[1]"
+          >
+            <span class="value">{{ tile.value }}</span>
+            <span class="label">{{ tile.label }}</span>
+            <span class="hint">{{ tile.hint }}</span>
+          </a>
+        } @else {
+          <div class="tile" [class]="tile.tone">
+            <span class="value">{{ tile.value }}</span>
+            <span class="label">{{ tile.label }}</span>
+            <span class="hint">{{ tile.hint }}</span>
+          </div>
+        }
+      }
+    </section>
+
+    <div class="panels">
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>By status</h2>
+          <dl class="rows">
+            @for (row of byStatus(); track row.status) {
+              <div class="row">
+                <dt>{{ row.status }}</dt>
+                <dd>{{ row.count }}</dd>
+              </div>
+            }
+          </dl>
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>Escalated</h2>
+          <dl class="rows">
+            @for (rung of escalations(); track rung.level) {
+              <div class="row">
+                <dt>Level {{ rung.level }}</dt>
+                <dd>{{ rung.count }}</dd>
+              </div>
+            }
+          </dl>
+          <p class="note">
+            Open complaints the sweeper has escalated. Level 1 is a breach; level 2 is a
+            complaint still open half a window past it.
+          </p>
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>Last 30 days</h2>
+
+          @if (resolution(); as resolved) {
+            <dl class="rows">
+              <div class="row">
+                <dt>Resolved</dt>
+                <dd>{{ resolved.count }}</dd>
+              </div>
+              <div class="row">
+                <dt>Average time</dt>
+                <dd>{{ resolved.averageHours }}h</dd>
+              </div>
+              <div class="row">
+                <dt>Met their SLA</dt>
+                <dd>{{ resolved.compliance }}%</dd>
+              </div>
+            </dl>
+            <p class="note">Measured to when a complaint was resolved, not when it was closed.</p>
+          } @else {
+            <p class="note">Nothing resolved in the last 30 days.</p>
+          }
+        </mat-card-content>
+      </mat-card>
+    </div>
+  }
+</div>

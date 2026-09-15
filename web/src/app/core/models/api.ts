@@ -312,6 +312,31 @@ export interface SlaSweepResult {
   durationMs: number;
 }
 
+/**
+ * `GET /dashboard/summary`. SPEC.md §14 F13.
+ *
+ * Every figure is computed server-side over the caller's own scope, so a Citizen receives
+ * this same shape over their own complaints. Nothing here is re-derived in the browser —
+ * in particular `warningOpen` and `breachedOpen` come from the markers the sweeper wrote,
+ * not from the client comparing `slaDueAt` against a threshold (§11.2, §15).
+ */
+export interface DashboardSummary {
+  totalOpen: number;
+  byStatus: Record<ComplaintStatus, number>;
+  warningOpen: number;
+  breachedOpen: number;
+  dueNext24h: number;
+  escalatedLevel1: number;
+  escalatedLevel2: number;
+  resolvedLast30Days: number;
+
+  /** Null when nothing was resolved in the window — which is not the same as zero. */
+  avgResolutionHours: number | null;
+
+  /** Null when nothing was resolved in the window. */
+  slaCompliancePct: number | null;
+}
+
 /** RFC 9457, as SPEC.md §13.1 requires on every non-2xx. */
 export interface ProblemDetails {
   type?: string;

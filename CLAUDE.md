@@ -31,7 +31,7 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1–M7 are done; M8 (issue #9) is next.** On top of the schema, the seeder and authentication,
+**M1–M8 are done; M9 (issue #10) is next.** On top of the schema, the seeder and authentication,
 a citizen can file a complaint, attach photos to it, and track it by reference without signing in.
 `ComplaintQueryScope` is in place and every complaint query goes through it. The guard table now
 exists: all twelve rows of §12.3 live in `ComplaintStateMachine`, `ComplaintTransitionService` is
@@ -46,8 +46,14 @@ of §11.3 are in place and a second pass provably changes nothing. `complaint.St
 still only in `ComplaintTransitionService`: the sweeper's auto-close goes through
 `CloseAsSystemAsync` and row 11 of the guard table.
 
-**There is no dashboard and no export yet.** `GET /dashboard/summary` and
-`GET /complaints/export` are M8.
+**The dashboard and the CSV export are in.** `GET /dashboard/summary` is role-scoped through
+the same seam as every other read, so a Citizen gets the same shape over their own complaints.
+`GET /complaints/export` shares the list's scope and filter code by construction — it calls
+`ComplaintService.ScopedAndFiltered` rather than owning a query — and every CSV field is quoted
+with a leading `=`, `+`, `-` or `@` neutralised.
+
+**Nothing is deployed.** There is no Bicep, no deploy workflow and no Azure anything — that is
+M9, and M10's Service Bus escalation is the stretch after it.
 The roadmap table in §20 is the live progress
 tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
 starting anything; tick the box in the milestone's own PR, only once the DoD really passes.
@@ -112,13 +118,15 @@ These are the rules an agent is most likely to violate. Everything else is in `.
 
 ## Testing bar — and its ceiling
 
-Five xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
-role scoping, and token rotation. **Frontend tests: zero** — `ng build` is the frontend gate, and
-that is decision D6, not an oversight.
+Six xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
+role scoping, token rotation, and dashboard & export. **Frontend tests: zero** — `ng build` is the
+frontend gate, and that is decision D6, not an oversight.
 
-Do not add coverage beyond those five out of habit. A PR that adds a sixth suite needs a reason in
-its description — token rotation earned its place in M3 because family revocation is an M3
-acceptance criterion whose failure is invisible from outside.
+Do not add coverage beyond those six out of habit. A PR that adds a seventh needs a reason in its
+description. Two have earned their place: token rotation in M3, because family revocation is an
+acceptance criterion whose failure is invisible from outside; and dashboard & export in M8, because
+"every figure matches a hand count" and "a test covers a title beginning with `=`" are themselves
+acceptance criteria.
 
 ## Commands
 
