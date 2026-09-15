@@ -1,0 +1,101 @@
+<div class="page">
+  <header class="head">
+    <div>
+      <h1>SLA breaches</h1>
+      <p class="sub">Open complaints in your department that are past their deadline.</p>
+    </div>
+
+    <button matButton="filled" [disabled]="busy()" (click)="onSweep()">
+      <mat-icon>autorenew</mat-icon>
+      {{ sweep.isLoading() ? 'Sweeping…' : 'Run a sweep now' }}
+    </button>
+  </header>
+
+  <!-- The counters the pass reported, verbatim. §14 F11. -->
+  @if (sweep.value(); as counters) {
+    <p class="counters">
+      Last sweep examined {{ counters.examined }}, warned {{ counters.warned }}, breached
+      {{ counters.breached }}, escalated {{ counters.escalatedLevel2 }} to level 2 and
+      auto-closed {{ counters.autoClosed }} in {{ counters.durationMs }}ms.
+    </p>
+  }
+
+  <mat-card>
+    <mat-card-content>
+      @if (busy()) {
+        <mat-progress-bar mode="indeterminate" />
+      }
+
+      @if (result.error()) {
+        <p class="empty">That did not load. Try again in a moment.</p>
+      } @else if (result.value(); as breaches) {
+        @if (breaches.length === 0) {
+          <p class="empty">
+            Nothing is past its deadline. The sweeper checks every minute and this list fills
+            itself.
+          </p>
+        } @else {
+          <table mat-table [dataSource]="breaches">
+            <ng-container matColumnDef="reference">
+              <th mat-header-cell *matHeaderCellDef>Reference</th>
+              <td mat-cell *matCellDef="let row">
+                <a [routerLink]="['/complaints', row.id]">{{ row.referenceNumber }}</a>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="title">
+              <th mat-header-cell *matHeaderCellDef>Complaint</th>
+              <td mat-cell *matCellDef="let row">
+                <span class="title">{{ row.title }}</span>
+                <span class="category">{{ row.categoryName }}</span>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="priority">
+              <th mat-header-cell *matHeaderCellDef>Priority</th>
+              <td mat-cell *matCellDef="let row">
+                <app-priority-chip [priority]="row.priority" />
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="status">
+              <th mat-header-cell *matHeaderCellDef>Status</th>
+              <td mat-cell *matCellDef="let row">
+                <app-status-chip [status]="row.status" />
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="assignee">
+              <th mat-header-cell *matHeaderCellDef>Assigned to</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.assignedStaffName ?? '—' }}
+              </td>
+            </ng-container>
+
+            <!-- The level the server recorded, never one this screen works out. -->
+            <ng-container matColumnDef="level">
+              <th mat-header-cell *matHeaderCellDef>Escalation</th>
+              <td mat-cell *matCellDef="let row">
+                <span class="level" [class.two]="row.escalationLevel === 2">
+                  L{{ row.escalationLevel }}
+                </span>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="overdue">
+              <th mat-header-cell *matHeaderCellDef>Overdue by</th>
+              <td mat-cell *matCellDef="let row">
+                <span class="overdue" [matTooltip]="'Due ' + row.slaDueAt">
+                  {{ overdue(row.hoursOverdue) }}
+                </span>
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="columns"></tr>
+            <tr mat-row *matRowDef="let row; columns: columns"></tr>
+          </table>
+        }
+      }
+    </mat-card-content>
+  </mat-card>
+</div>

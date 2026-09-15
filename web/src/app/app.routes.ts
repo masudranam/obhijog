@@ -70,6 +70,13 @@ export const routes: Routes = [
     loadComponent: () => import('./features/admin/inbox/inbox').then((m) => m.Inbox),
   },
   {
+    // DeptAdmin only, matching `GET /sla/breaches` (§13.2). The guard is routing, not
+    // permission — the endpoint refuses anyone else regardless of what the router allows.
+    path: 'breaches',
+    canActivate: [authGuard, roleGuard('DeptAdmin')],
+    loadComponent: () => import('./features/admin/breaches/breaches').then((m) => m.Breaches),
+  },
+  {
     path: '**',
     redirectTo: '',
   },

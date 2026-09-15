@@ -836,7 +836,7 @@ a `CASE` expression. The list and the detail call the same function, so a button
 in the queue can never be refused by the detail screen it links to.
 
 The detail DTO also carries **`escalations`** — the rungs of the SLA ladder, for F9's merged
-timeline. Empty until the M7 sweeper writes one. It carries the level and the moment but no reason
+timeline. Filled by the sweeper from M7 on. It carries the level and the moment but no reason
 text: the entity's `Reason` names the supervisor who was notified, and staff identity is not a
 reporter's to see (§9.5).
 
@@ -1144,8 +1144,8 @@ adds a fifth suite needs a reason in its description.
 | Suite | File | Covers |
 |---|---|---|
 | State machine | `tests/Obhijog.Tests/ComplaintStateMachineTests.cs` | all twelve rows of §12.3 allowed; a sample of absent pairs rejected; role and assignee-only guards; required-payload validation |
-| SLA arithmetic | `tests/Obhijog.Tests/SlaPolicyTests.cs` | `DueAt`, `WarnAt`, `Level2At`, `ElapsedPercent`; the recategorize recompute; the reopen reset — all through a fake `TimeProvider` |
-| Sweep idempotency | `tests/Obhijog.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days |
+| SLA arithmetic | `tests/Obhijog.Tests/SlaPolicyTests.cs` | `DueAt`, `AtPercent`, `WarnAt`, `Level2At`, `ElapsedPercent`, driven by a fake `TimeProvider`. Pure, so no database |
+| Sweep idempotency | `tests/Obhijog.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days; the unique index refusing a duplicate and the sweep surviving it; the §11.4 clock effects — the recategorize recompute and the reopen reset |
 | Role scoping | `tests/Obhijog.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
 | Token rotation | `tests/Obhijog.Tests/RefreshTokenRotationTests.cs` | rotation revokes the presented token; **reuse of a revoked token revokes the whole family**; an unknown token revokes nothing; expiry; logout revokes one device; a deactivated account cannot refresh; the claims a token carries, validated through the API's own parameters |
 
@@ -1158,6 +1158,11 @@ adds a fifth suite needs a reason in its description.
   predates any token existing. Its one failure mode that matters — a stolen refresh token
   that keeps working — is invisible from outside, and deleting the `RevokeFamilyAsync` call
   left every other test in the repository green. The bar is now five suites, not six.
+- **The §11.4 clock effects are tested in the sweep suite, not the arithmetic one.** This table
+  originally put the recategorize recompute and the reopen reset beside `SlaPolicy`, but neither
+  lives there: both are applied by `ComplaintTransitionService` against the database and the real
+  guard table. Testing them as pure arithmetic would test a copy of the production code rather than
+  the production code, so they sit with the sweep, where a real PostgreSQL is already in play.
 - **Frontend: zero tests.** `ng build` is the gate. This is decision D6, not an omission.
 - No test spins up Azurite; `IAttachmentStore` is doubled.
 
@@ -1255,7 +1260,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M4 | #5 | Submission, citizen views, public tracking | F4, F5 | M3 | A Citizen submits and sees a reference number and SLA countdown; another citizen's complaint → `404`; `by-reference` works anonymously and leaks no identity | ☑ |
 | M5 | #6 | Photo attachments via Blob | F6 | M4 | A photo round-trips through Azurite; `415` / `413` / count limits enforced; reads only via SAS; the gallery renders | ☑ |
 | M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☑ |
-| M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☐ |
+| M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☑ |
 | M8 | #9 | Dashboard & CSV export | F13, F14 | M7 | Every dashboard figure matches a hand count on seed data; the export shares the list's filter and scope code; CSV injection neutralised | ☐ |
 | M9 | #10 | Bicep & deploy workflow | F15 | M8 | `az deployment group what-if` is clean; the API image builds; the deploy workflow is dispatch-only; no secret literals | ☐ |
 | M10 | #11 | **Stretch** — Service Bus + Functions escalation | F16 | M7 | A breach publishes to Service Bus; the Function writes the notifications; a redelivered message is provably harmless; `InProcess` still works | ☐ |

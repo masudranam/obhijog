@@ -5,6 +5,22 @@
   <span class="spacer"></span>
 
   @if (auth.me(); as user) {
+    <!--
+      Role-shaped navigation. Hiding a link is presentation only: every route behind these
+      has its own guard and every endpoint behind that has a server-side one (§21.5).
+    -->
+    @switch (user.role) {
+      @case ('Citizen') {
+        <a matButton routerLink="/my">My complaints</a>
+      }
+      @case ('Staff') {
+        <a matButton routerLink="/queue">My queue</a>
+      }
+      @case ('DeptAdmin') {
+        <a matButton routerLink="/inbox">Inbox</a>
+        <a matButton routerLink="/breaches">Breaches</a>
+      }
+    }
     <span class="who">{{ user.fullName }} · {{ user.role }}</span>
     <button matButton (click)="signOut()">Sign out</button>
   } @else {

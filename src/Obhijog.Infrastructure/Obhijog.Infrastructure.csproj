@@ -13,4 +13,15 @@
     <ProjectReference Include="..\Obhijog.Domain\Obhijog.Domain.csproj" />
   </ItemGroup>
 
+  <!--
+    The sweeper's auto-close path, ComplaintTransitionService.CloseAsSystemAsync, is
+    internal on purpose: it skips the caller scope and must not be reachable from an
+    endpoint. The sweep suite still has to prove it consults the guard table (SPEC.md
+    §11.5, CLAUDE.md non-negotiable 3), and widening the method to public to make it
+    testable would defeat the reason it is internal.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Obhijog.Tests" />
+  </ItemGroup>
+
 </Project>

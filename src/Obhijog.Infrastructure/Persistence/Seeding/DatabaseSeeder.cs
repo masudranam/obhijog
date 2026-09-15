@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Obhijog.Domain.Complaints;
 using Obhijog.Domain.Departments;
+using Obhijog.Domain.Sla;
 using Obhijog.Domain.Users;
 using Obhijog.Infrastructure.Identity;
 
@@ -42,6 +44,7 @@ public class DatabaseSeeder(
         await SeedCategoriesAsync(departments, cancellationToken);
         await SeedRolesAsync();
         await SeedUsersAsync(departments, password, cancellationToken);
+        await SeedOverdueComplaintsAsync(cancellationToken);
     }
 
     private async Task<Dictionary<string, Department>> SeedDepartmentsAsync(
@@ -165,6 +168,109 @@ public class DatabaseSeeder(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The three deliberately overdue complaints of §8.11, so the escalation ladder is
+    /// demonstrable the moment the API starts rather than after waiting out a real SLA window.
+    ///
+    /// <b>Computed backwards from the clock, never from a fixed date.</b> Each seed says how
+    /// far through its window it should be *now*, and <c>CreatedAt</c> is derived from that
+    /// against <c>TimeProvider.GetUtcNow()</c> — so a database seeded last month is still
+    /// exactly as overdue today as it was then.
+    ///
+    /// Idempotent on the title, the only stable natural key a complaint has: the reference
+    /// number comes from a sequence and is different on every run, so matching on it would
+    /// make this method insert three more complaints every time it ran.
+    /// </summary>
+    private async Task SeedOverdueComplaintsAsync(CancellationToken cancellationToken)
+    {
+        var titles = SeedData.OverdueComplaints.Select(c => c.Title).ToArray();
+
+        var existing = await db.Complaints
+            .Where(c => titles.Contains(c.Title))
+            .Select(c => c.Title)
+            .ToListAsync(cancellationToken);
+
+        var known = existing.ToHashSet();
+        var now = timeProvider.GetUtcNow();
+
+        foreach (var seed in SeedData.OverdueComplaints)
+        {
+            if (known.Contains(seed.Title))
+            {
+                continue;
+            }
+
+            var category = await db.ComplaintCategories
+                .SingleOrDefaultAsync(c => c.Name == seed.CategoryName, cancellationToken);
+
+            var citizen = await userManager.FindByEmailAsync(seed.CitizenEmail);
+
+            if (category is null || citizen is null)
+            {
+                // Both come from the seed lists above and are created moments earlier, so
+                // this only fires when §8.11's tables have drifted apart. Loudly, because a
+                // silently skipped demo complaint looks exactly like a broken sweeper later.
+                throw new InvalidOperationException(
+                    $"Cannot seed '{seed.Title}': category '{seed.CategoryName}' or citizen "
+                    + $"'{seed.CitizenEmail}' is missing. SPEC.md §8.11.");
+            }
+
+            // The window is the category's SLA, and CreatedAt is placed far enough back that
+            // the complaint sits at exactly the elapsed percentage the seed asks for.
+            var window = TimeSpan.FromHours(category.SlaHours);
+            var createdAt = now - window * (seed.ElapsedPercent / 100d);
+
+            db.Complaints.Add(new Complaint
+            {
+                Id = Guid.CreateVersion7(),
+                ReferenceNumber = await NextReferenceNumberAsync(createdAt, cancellationToken),
+                CitizenId = citizen.Id,
+                CategoryId = category.Id,
+                DepartmentId = category.DepartmentId,
+                Priority = category.DefaultPriority,
+                Title = seed.Title,
+                Description = seed.Description,
+
+                // Status is left at the entity's default of New. The sweeper's job is the
+                // clock, not the workflow, and moving a seeded complaint to Assigned would
+                // mean assigning a status outside the single write path (non-negotiable 3).
+                Latitude = seed.Latitude,
+                Longitude = seed.Longitude,
+                AddressText = seed.AddressText,
+                CreatedAt = createdAt,
+
+                // Through SlaPolicy like every other complaint, so the seed cannot disagree
+                // with what submission would have produced.
+                SlaDueAt = SlaPolicy.DueAt(createdAt, category.SlaHours),
+            });
+
+            logger.LogInformation(
+                "Seeding overdue complaint {Title} at {ElapsedPercent}% of its SLA window",
+                seed.Title,
+                seed.ElapsedPercent);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// §8.10, the same global sequence <c>ComplaintService</c> draws from — a seeded
+    /// complaint gets a real reference number, not a hand-made one that could collide with
+    /// a filed complaint later.
+    /// </summary>
+    private async Task<string> NextReferenceNumberAsync(
+        DateTimeOffset createdAt,
+        CancellationToken cancellationToken)
+    {
+        // The sequence name is a compile-time constant, never input.
+        var next = await db.Database
+            .SqlQueryRaw<long>(
+                $"SELECT nextval('{ObhijogDbContext.ComplaintReferenceSequence}') AS \"Value\"")
+            .SingleAsync(cancellationToken);
+
+        return $"MC-{createdAt:yyyy}-{next:D6}";
     }
 
     /// <summary>

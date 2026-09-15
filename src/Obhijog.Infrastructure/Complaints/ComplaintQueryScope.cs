@@ -43,6 +43,24 @@ public static class ComplaintQueryScope
     }
 
     /// <summary>
+    /// The sweep's entry point. SPEC.md §11, §9.3.
+    ///
+    /// A background sweep has no caller: there is no signed-in user whose department or
+    /// ownership could scope it, and every open complaint in every department is in its
+    /// remit by definition. Passing the ambient <c>ICurrentUser</c> — unauthenticated
+    /// outside a request — would quietly return nothing and the SLA engine would appear to
+    /// work while escalating no one.
+    ///
+    /// So the widening is <b>named</b> rather than achieved by reaching past the seam for a
+    /// bare <c>db.Complaints</c>. Every unscoped complaint read in the codebase says
+    /// <c>ForSystem</c> out loud, which is a thing a reviewer can grep for and a thing a
+    /// test can assert about — neither of which is true of an absence.
+    ///
+    /// Nothing reachable from an HTTP request may call this.
+    /// </summary>
+    public static IQueryable<Complaint> ForSystem(IQueryable<Complaint> source) => source;
+
+    /// <summary>
     /// A <c>departmentId</c> query parameter never widens scope (§9.3, §13.3). It is
     /// honoured only when it names the caller's own department, and ignored otherwise —
     /// ignored rather than rejected, so a stale bookmark degrades to the caller's own data

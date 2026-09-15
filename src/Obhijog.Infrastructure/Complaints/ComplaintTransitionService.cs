@@ -135,6 +135,99 @@ public class ComplaintTransitionService(
         return await ReadBackAsync(complaint.Id, cancellationToken);
     }
 
+    /// <summary>
+    /// §11.5's auto-close, performed by the sweeper as the <c>System</c> actor.
+    ///
+    /// It lives here, on the single write path, rather than in <c>SlaSweeper</c>, because
+    /// CLAUDE.md non-negotiable 3 is literal: <c>complaint.Status = …</c> appears in this
+    /// file and nowhere else. The sweeper decides *which* complaints are due for closing;
+    /// the guard table still decides whether closing them is legal, and row 11 of §12.3
+    /// carries <c>AllowSystem: true</c> for exactly this caller.
+    ///
+    /// Two differences from <see cref="TransitionAsync"/>, both deliberate:
+    ///
+    /// <list type="bullet">
+    /// <item>The complaint is loaded through <c>ComplaintQueryScope.ForSystem</c>, not
+    /// <c>For</c>. A sweep is not a caller — there is no signed-in user to scope to, and
+    /// scoping it to the ambient (unauthenticated) <c>ICurrentUser</c> would silently
+    /// close nothing at all.</item>
+    /// <item>It returns a <c>bool</c> rather than a <c>ComplaintDetail</c>. Nobody is
+    /// waiting on the response, and projecting one would need a caller to compute
+    /// <c>availableActions</c> for.</item>
+    /// </list>
+    ///
+    /// Returns <c>false</c> when the complaint moved between the sweeper selecting it and
+    /// this call — a citizen who closed or reopened it in that window wins, and the sweep
+    /// records nothing rather than forcing the issue.
+    /// </summary>
+    internal async Task<bool> CloseAsSystemAsync(
+        Guid complaintId,
+        string note,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        var complaint = await ComplaintQueryScope
+            .ForSystem(db.Complaints)
+            .SingleOrDefaultAsync(c => c.Id == complaintId, cancellationToken);
+
+        if (complaint is null)
+        {
+            return false;
+        }
+
+        var check = ComplaintStateMachine.Check(
+            complaint.Status,
+            ComplaintAction.Close,
+
+            // The role is ignored once isSystem is set, but the parameter is not optional,
+            // so this passes the one role row 11 does **not** permit. AllowSystem is then
+            // the only thing authorising the close, and a mutation that drops isSystem
+            // fails closed instead of quietly succeeding on the role's own authority —
+            // which is exactly what happened when this said UserRole.Citizen, a role §12.3
+            // lets close a resolved complaint.
+            //
+            // AllowSystem is a separate column of §12.3 precisely so that "the system" never
+            // has to impersonate a person.
+            UserRole.Staff,
+            Guid.Empty,
+            complaint.AssignedStaffId,
+            isSystem: true);
+
+        if (!check.IsAllowed)
+        {
+            return false;
+        }
+
+        var from = complaint.Status;
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        complaint.Status = check.Rule!.To;
+        complaint.ClosedAt = now;
+
+        db.ComplaintStatusHistories.Add(new ComplaintStatusHistory
+        {
+            Id = Guid.CreateVersion7(),
+            ComplaintId = complaint.Id,
+            FromStatus = from,
+            ToStatus = check.Rule.To,
+            Action = ComplaintAction.Close,
+
+            // Null actor and IsSystem together — the check constraint of §8.5 rejects any
+            // other combination, which is what stops a system row from being attributed to
+            // a person.
+            ChangedById = null,
+            ChangedAt = now,
+            Note = note,
+            IsSystem = true,
+        });
+
+        await SaveAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return true;
+    }
+
     // ---------------------------------------------------------------------------------
 
     /// <summary>Turns a <see cref="TransitionCheck"/> into the status code §12.3 requires.</summary>
