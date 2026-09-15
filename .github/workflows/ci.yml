@@ -191,6 +191,10 @@ jobs:
       - name: lint
         run: az bicep lint --file infra/main.bicep
 
+      # Required before the step below. The default docker driver cannot export a build
+      # cache at all, so `cache-to: gha` fails the job outright without buildx.
+      - uses: docker/setup-buildx-action@v3
+
       # F15 says the API image builds. Asserting it and verifying it are different things.
       # No push: CI proves it compiles, deploy.yml is what publishes it.
       - name: build the api image
