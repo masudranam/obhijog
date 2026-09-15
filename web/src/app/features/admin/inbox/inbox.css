@@ -30,3 +30,10 @@
   width: 100%;
   max-width: 380px;
 }
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}

@@ -9,6 +9,7 @@
       Role-shaped navigation. Hiding a link is presentation only: every route behind these
       has its own guard and every endpoint behind that has a server-side one (§21.5).
     -->
+    <a matButton routerLink="/dashboard">Dashboard</a>
     @switch (user.role) {
       @case ('Citizen') {
         <a matButton routerLink="/my">My complaints</a>

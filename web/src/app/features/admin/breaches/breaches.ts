@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -69,13 +69,29 @@ export class Breaches {
   });
 
   /**
-   * Re-reads whenever a sweep completes: the params signal reads `sweep.value()`, so a new
-   * counters object is a new request. No manual refresh call, and no chance of the list and
-   * the summary disagreeing about which pass they describe.
+   * The last completed pass's counters, or null.
+   *
+   * `hasValue()` first, always: `rxResource.value()` **throws** `ResourceValueError` while
+   * the resource is in an error state, so reading it unguarded meant a failed sweep took
+   * the breach list down with it instead of only raising the interceptor's snackbar
+   * (issue #41).
+   */
+  protected readonly counters = computed(() => (this.sweep.hasValue() ? this.sweep.value() : null));
+
+  /**
+   * Re-reads whenever a sweep completes. Keyed on the pass number rather than on the
+   * counters object: `sweep.value()` drops back to its default mid-reload, so keying on the
+   * value fired this twice per sweep.
    */
   protected readonly result = rxResource({
-    params: () => ({ after: this.sweep.value() }),
+    params: () => ({ after: this.completed() }),
     stream: () => this.sla.breaches(),
+  });
+
+  /** Which pass the list is showing. Advances once, when a sweep lands. */
+  private readonly completed = linkedSignal<number | null, number>({
+    source: () => (this.counters() === null ? null : this.requested()),
+    computation: (pass, previous) => pass ?? previous?.value ?? 0,
   });
 
   protected readonly busy = computed(() => this.sweep.isLoading() || this.result.isLoading());

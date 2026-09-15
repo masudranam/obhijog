@@ -13,6 +13,8 @@ using Obhijog.Api.Startup;
 using Obhijog.Infrastructure.Attachments;
 using Obhijog.Infrastructure.Auth;
 using Obhijog.Infrastructure.Complaints;
+using Obhijog.Infrastructure.Dashboard;
+using Obhijog.Infrastructure.Export;
 using Obhijog.Infrastructure.Identity;
 using Obhijog.Infrastructure.Notifications;
 using Obhijog.Infrastructure.Options;
@@ -130,6 +132,8 @@ builder.Services.AddScoped<ComplaintTransitionService>();
 builder.Services.AddScoped<CommentService>();
 builder.Services.AddScoped<IAttachmentStore, BlobAttachmentStore>();
 builder.Services.AddScoped<SlaService>();
+builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<ComplaintExportService>();
 builder.Services.AddScoped<ISlaSweeper, SlaSweeper>();
 
 // The MVP channel of F12. Swapping in email is a different registration here and no other
@@ -190,9 +194,10 @@ app.MapHealthEndpoints();
 var api = app.MapGroup("/api/v1");
 api.MapAuthEndpoints();
 api.MapReferenceEndpoints();
-api.MapComplaintEndpoints();
+api.MapComplaintEndpoints().MapExportEndpoint();
 api.MapAttachmentEndpoints();
 api.MapSlaEndpoints();
+api.MapDashboardEndpoints();
 
 // Before serving. In Azure the container comes from Bicep and this is a no-op; locally
 // nothing else creates it, and /health/ready is 503 until it exists.

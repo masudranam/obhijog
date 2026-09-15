@@ -46,7 +46,7 @@ Not the CRUD. Three things:
 
 ## Status
 
-**M7 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
+**M8 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
 endpoints, the full data model with its migration, an idempotent seeder, JWT authentication with
 the three roles, complaint submission and photo attachments are in place: a citizen files a
 complaint with photos, gets a reference number and an SLA deadline, and anyone holding that
@@ -65,7 +65,14 @@ notifications in one transaction, and **running the sweep twice produces exactly
 once did**: that is the property the whole feature rests on and it has its own suite against a
 real PostgreSQL. A department admin sees their overdue work on `/breaches`, worst first.
 
-The dashboard and the CSV export are M8.
+A dashboard totals the work — open, approaching, breached, escalated, and how the last thirty
+days went against their deadlines — computed server-side over whatever the caller is allowed to
+see, so a citizen gets the same screen over their own complaints. A department admin can export
+what they are looking at as CSV, sharing the list's filter and scope code rather than a second
+implementation of it, with every field quoted and anything a spreadsheet would treat as a formula
+defused first.
+
+Nothing is deployed yet: the Bicep and the deploy workflow are M9.
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.
 

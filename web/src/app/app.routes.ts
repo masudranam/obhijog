@@ -60,6 +60,14 @@ export const routes: Routes = [
       ),
   },
   {
+    // All three roles. The summary arrives already scoped, so a Citizen gets the same
+    // screen over their own complaints (§9.3, F13) — there is nothing here to guard by role
+    // that the scope has not already decided.
+    path: 'dashboard',
+    canActivate: [authGuard],
+    loadComponent: () => import('./features/dashboard/dashboard').then((m) => m.Dashboard),
+  },
+  {
     path: 'queue',
     canActivate: [authGuard, roleGuard('Staff')],
     loadComponent: () => import('./features/staff/queue/queue').then((m) => m.Queue),

@@ -12,7 +12,7 @@
   </header>
 
   <!-- The counters the pass reported, verbatim. §14 F11. -->
-  @if (sweep.value(); as counters) {
+  @if (counters(); as counters) {
     <p class="counters">
       Last sweep examined {{ counters.examined }}, warned {{ counters.warned }}, breached
       {{ counters.breached }}, escalated {{ counters.escalatedLevel2 }} to level 2 and

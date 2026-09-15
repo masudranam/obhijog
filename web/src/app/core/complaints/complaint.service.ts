@@ -51,6 +51,32 @@ export class ComplaintService {
   }
 
   list(params: ComplaintListParams = {}): Observable<Page<ComplaintListItem>> {
+    return this.http.get<Page<ComplaintListItem>>(this.baseUrl, {
+      params: this.toParams(params),
+    });
+  }
+
+  /**
+   * `GET /complaints/export`. SPEC.md §14 F14.
+   *
+   * Built from {@link toParams}, the very same query the list sends — which is the client
+   * half of F14's "the export applies the same filter as the list". The server enforces the
+   * other half by sharing `ScopedAndFiltered`; between them there is no place for the two to
+   * drift.
+   *
+   * A blob rather than a plain `<a href>`: the endpoint needs the bearer token, and an
+   * anchor cannot carry one. The interceptor attaches it to this request as it would any
+   * other.
+   */
+  export(params: ComplaintListParams = {}): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/export`, {
+      params: this.toParams(params),
+      responseType: 'blob',
+    });
+  }
+
+  /** The §13.3 query string, built once for both the list and the export. */
+  private toParams(params: ComplaintListParams): HttpParams {
     let httpParams = new HttpParams();
 
     for (const status of params.status ?? []) {
@@ -89,7 +115,7 @@ export class ComplaintService {
       httpParams = httpParams.set('pageSize', params.pageSize);
     }
 
-    return this.http.get<Page<ComplaintListItem>>(this.baseUrl, { params: httpParams });
+    return httpParams;
   }
 
   get(id: string): Observable<ComplaintDetail> {
