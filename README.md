@@ -83,8 +83,10 @@ in Key Vault, and come back as Key Vault references, and none of them is ever a 
 `.github/workflows/deploy.yml` is dispatch-only and previews with `what-if` before it applies.
 
 **It has not been deployed.** `what-if` needs an authenticated subscription, which this project
-does not have; what is actually verified is that the template compiles and lints clean in CI on
-every SHA, and that the API image builds and answers `/health`.
+does not have. What CI verifies on every SHA is that the template compiles and lints clean, that
+the compiled ARM contains no firewall rule, and that the API image builds. That the running
+container answers `/health`, `/health/ready` and `401` on a protected route was checked by hand,
+once — worth knowing, but it is not a standing check and nothing re-runs it.
 
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.

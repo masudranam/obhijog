@@ -179,22 +179,36 @@ jobs:
       # `bicep build` compiles a `flexibleServers/firewallRules` resource with
       # `startIpAddress: '0.0.0.0'` perfectly happily; Azure's control plane rejects it at
       # deploy time because the server is VNet-injected, but nothing in this repository did.
-      # Now something does, on every SHA, and the grep is over the *compiled* ARM rather than
-      # over main.bicep, so it cannot be slipped past with a variable or an interpolation.
+      #
+      # **Which of these four greps is load-bearing, precisely.** `firewallRules` is: a
+      # resource type is always a literal in the compiled ARM, so no firewall rule of any
+      # shape evades it whatever the addresses are. The `0.0.0.0` grep is *not* airtight and
+      # the earlier version of this comment wrongly said it was — `var o = '0'` with
+      # `'${o}.${o}.${o}.${o}'` compiles to a `format()` call and slips straight past it. It
+      # stays because it is free and catches the obvious spelling, not because it is a wall.
+      #
+      # `deploymentScripts` and `templateLink` are here because they are the two ways to add
+      # a firewall rule that never appears in this template at all: a script shelling out to
+      # `az postgres flexible-server firewall-rule create` (note the CLI hyphenates it, so
+      # the grep above misses it), and a linked deployment whose body lives at a URI. This
+      # template has no legitimate use for either, so failing on them costs nothing.
       - name: no public database firewall rule
         run: |
           set -uo pipefail
           status=0
-          if grep -n '0\.0\.0\.0' "$RUNNER_TEMP/main.json"; then
-            echo "::error file=infra/main.bicep::The compiled template contains 0.0.0.0. SPEC §14 F15 forbids a public firewall rule on the database."
-            status=1
-          fi
-          if grep -ni 'firewallRules' "$RUNNER_TEMP/main.json"; then
-            echo "::error file=infra/main.bicep::The compiled template declares a firewall rule. The database is VNet-injected and has no firewall (SPEC §14 F15)."
-            status=1
-          fi
+          fail() {
+            grep -ni "$1" "$RUNNER_TEMP/main.json" && {
+              echo "::error file=infra/main.bicep::$2"
+              status=1
+            }
+            return 0
+          }
+          fail '0\.0\.0\.0'      'The compiled template contains 0.0.0.0. SPEC §14 F15 forbids a public firewall rule on the database.'
+          fail 'firewallRules'   'The compiled template declares a firewall rule. The database is VNet-injected and has no firewall (SPEC §14 F15).'
+          fail 'deploymentScripts' 'The compiled template runs a deployment script, which could open the database outside the template. SPEC §14 F15.'
+          fail 'templateLink'    'The compiled template links an external template, whose contents this gate cannot see. SPEC §14 F15.'
           if [ "$status" = 0 ]; then
-            echo "No 0.0.0.0 and no firewallRules in the compiled template."
+            echo "Clean: no 0.0.0.0, no firewallRules, no deploymentScripts, no templateLink."
           fi
           exit "$status"
 
