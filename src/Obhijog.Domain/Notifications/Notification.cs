@@ -15,6 +15,17 @@ public class Notification
 
     public Guid? ComplaintId { get; set; }
 
+    /// <summary>
+    /// The complaint's <c>ReopenCount</c> when this row was written, copied for the same
+    /// reason <see cref="Obhijog.Domain.Complaints.EscalationEvent.ReopenCount"/> exists:
+    /// a reopened complaint legitimately re-runs the SLA ladder, so "already notified" has
+    /// to mean "already notified *this time round*".
+    ///
+    /// Zero for everything that is not an SLA notification; the unique index that reads it
+    /// is filtered to the three SLA types (§11.3 defence 4).
+    /// </summary>
+    public int ReopenCount { get; set; }
+
     public NotificationType Type { get; set; }
 
     /// <summary>Max 160 characters.</summary>

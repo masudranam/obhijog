@@ -46,7 +46,7 @@ Not the CRUD. Three things:
 
 ## Status
 
-**M9 of 10 is done.** The solution skeleton, CI gate, Angular shell, compose stack, health
+**All ten milestones are done.** The solution skeleton, CI gate, Angular shell, compose stack, health
 endpoints, the full data model with its migration, an idempotent seeder, JWT authentication with
 the three roles, complaint submission and photo attachments are in place: a citizen files a
 complaint with photos, gets a reference number and an SLA deadline, and anyone holding that
@@ -89,6 +89,18 @@ does not have. What CI verifies on every SHA is that the template compiles and l
 the compiled ARM contains no firewall rule, and that the API image builds. That the running
 container answers `/health`, `/health/ready` and `401` on a protected route was checked by hand,
 once — worth knowing, but it is not a standing check and nothing re-runs it.
+
+Breach notifications can also leave the process entirely. With `Sla:Transport = ServiceBus` the
+sweeper publishes an `SlaBreached` message instead of writing them inline and an Azure Function
+writes them — while the marker and the escalation row stay exactly where they were, because
+detection never moves. Redelivery is the whole point of that design and it is enforced rather than
+hoped for: M10 found that "one notification per recipient" had never been enforced by an index at
+all, only borrowed from the escalation table through a shared transaction that a queue consumer
+does not have, so it adds a fourth idempotency defence and tests the same message ten times.
+
+**Still nothing deployed, and the Function has never run against a real queue** — no Azure
+subscription. The transport is doubled in the tests and the idempotency they prove is real, because
+that part is a PostgreSQL index rather than a broker feature.
 
 [SPEC.md §20](SPEC.md#20-delivery-roadmap) is the live progress tracker — ten milestones, each one
 issue and one pull request.

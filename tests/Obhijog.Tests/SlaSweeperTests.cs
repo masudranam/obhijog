@@ -10,6 +10,7 @@ using Obhijog.Domain.Users;
 using Obhijog.Infrastructure.Auth;
 using Obhijog.Infrastructure.Complaints;
 using Obhijog.Infrastructure.Identity;
+using Obhijog.Infrastructure.Messaging;
 using Obhijog.Infrastructure.Notifications;
 using Obhijog.Infrastructure.Options;
 using Obhijog.Infrastructure.Persistence;
@@ -42,7 +43,11 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
     /// </summary>
     public const string Serialised = "sla-sweep";
 
-    private static readonly DateTimeOffset Noon = new(2026, 4, 2, 12, 0, 0, TimeSpan.Zero);
+    /// <summary>
+    /// Internal rather than private: <see cref="SlaTransportTests"/> drives the same fixture
+    /// and its clock must be this instant, not a second one that happens to look similar.
+    /// </summary>
+    internal static readonly DateTimeOffset Noon = new(2026, 4, 2, 12, 0, 0, TimeSpan.Zero);
 
     // -----------------------------------------------------------------------------------
     // The ladder — §11.2
@@ -937,7 +942,12 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
     /// Dept Admins and one inactive one, a staff member and a citizen. Unique keys
     /// throughout, so tests never collide in a shared database.
     /// </summary>
-    private sealed class World
+    /// <summary>
+    /// Shared with <see cref="SlaTransportTests"/>. One fixture for both suites: M10's
+    /// transport tests need the same department, admins and staff the sweep tests need, and
+    /// a second copy of this would be a second set of recipient counts to keep in step.
+    /// </summary>
+    internal sealed class World
     {
         public required TestClock Clock { get; init; }
 
@@ -961,7 +971,18 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
 
         public required Guid StaffId { get; init; }
 
+        /// <summary>A reassignment target, so §14 F16's "recipients are resolved at delivery"
+        /// has a second holder to resolve to.</summary>
+        public required Guid OtherStaffId { get; init; }
+
         public required Guid CitizenId { get; init; }
+
+        /// <summary>
+        /// §11.2's breach recipients for an assigned complaint in this world: the assignee
+        /// plus every <b>active</b> Dept Admin. The inactive admin is deliberately not
+        /// counted, which is the point of it existing.
+        /// </summary>
+        public int ExpectedRecipientCount => 3;
 
         public static async Task<World> CreateAsync(ObhijogDbContext db, int slaHours = 10)
         {
@@ -1002,9 +1023,10 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
             var inactiveAdmin = User(UserRole.DeptAdmin, department.Id);
             inactiveAdmin.IsActive = false;
             var staff = User(UserRole.Staff, department.Id);
+            var otherStaff = User(UserRole.Staff, department.Id);
             var citizen = User(UserRole.Citizen, null);
 
-            db.Users.AddRange(admin, secondAdmin, inactiveAdmin, staff, citizen);
+            db.Users.AddRange(admin, secondAdmin, inactiveAdmin, staff, otherStaff, citizen);
 
             await db.SaveChangesAsync();
             db.ChangeTracker.Clear();
@@ -1020,6 +1042,7 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
                 SecondAdminId = secondAdmin.Id,
                 InactiveAdminId = inactiveAdmin.Id,
                 StaffId = staff.Id,
+                OtherStaffId = otherStaff.Id,
                 CitizenId = citizen.Id,
             };
         }
@@ -1119,11 +1142,13 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
             ObhijogDbContext db,
             INotificationSender? sender = null,
             int batchSize = 500,
-            ILogger<SlaSweeper>? logger = null) =>
+            ILogger<SlaSweeper>? logger = null,
+            ISlaEventPublisher? publisher = null) =>
             new(
                 db,
                 Transitions(db, Guid.Empty, UserRole.Citizen, authenticated: false),
-                sender ?? new RecordingSender(),
+                Dispatcher(db, sender),
+                publisher ?? new InProcessSlaEventPublisher(),
                 Options.Create(new SlaOptions
                 {
                     WarningThresholdPercent = 80,
@@ -1133,6 +1158,15 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
                 }),
                 Clock,
                 logger ?? NullLogger<SlaSweeper>.Instance);
+
+        public NotificationDispatcher Dispatcher(
+            ObhijogDbContext db,
+            INotificationSender? sender = null) =>
+            new(
+                db,
+                sender ?? new RecordingSender(),
+                Clock,
+                NullLogger<NotificationDispatcher>.Instance);
 
         public ComplaintTransitionService AsAdmin(ObhijogDbContext db) =>
             Transitions(db, AdminId, UserRole.DeptAdmin);

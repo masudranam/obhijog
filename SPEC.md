@@ -362,15 +362,27 @@ legitimately re-runs the ladder while its earlier escalation history is preserve
 
 ### 8.9 `Notification`
 
-`Id`, `RecipientId`, `ComplaintId` (Guid?), `Type` (varchar(40)), `Subject` (varchar(160)),
-`Body` (varchar(2000)), `CreatedAt`, `SentAt` (timestamptz?), `Attempts` (int),
-`LastError` (varchar(500)?).
+`Id`, `RecipientId`, `ComplaintId` (Guid?), `ReopenCount` (int), `Type` (varchar(40)),
+`Subject` (varchar(160)), `Body` (varchar(2000)), `CreatedAt`, `SentAt` (timestamptz?),
+`Attempts` (int), `LastError` (varchar(500)?).
 
 Types: `ComplaintSubmitted`, `ComplaintAssigned`, `ComplaintResolved`, `SlaWarning`, `SlaBreached`,
 `SlaEscalatedLevel2`, `ComplaintReopened`, `ComplaintRejected`.
 
 Index `(RecipientId, CreatedAt desc)`, plus a partial `(SentAt)` where `sent_at IS NULL`. Writing the row
 and delivering it are separate concerns — the row is the record, delivery is best-effort (F12).
+
+**A partial unique index on `(ComplaintId, RecipientId, Type, ReopenCount)`, filtered to
+`type IN ('SlaWarning', 'SlaBreached', 'SlaEscalatedLevel2')`** — §11.3 defence 4, added in M10.
+
+`ReopenCount` is in the key for the same reason it is in `EscalationEvent`'s: a reopened complaint
+legitimately re-runs the ladder, so "already notified" has to mean "already notified *this time
+round*". It is `0` on every notification that is not an SLA rung.
+
+The filter is not an optimisation and must not be dropped. A blanket unique index would be wrong:
+`ComplaintAssigned` legitimately recurs for the same recipient inside one reopen cycle — reassign
+A → B → A and A is notified twice, correctly. Only the three SLA rungs carry a "once per recipient
+per reopen cycle" rule.
 
 ### 8.10 Reference number generation
 
@@ -585,11 +597,31 @@ times**. Three mechanisms, in order:
 3. **`EscalationEvent` is uniquely indexed on `(ComplaintId, ReopenCount, Level)`.** If two sweeps
    ever overlap, the second one's insert fails and its transaction rolls back — instead of
    producing a duplicate.
+4. **`Notification` is uniquely indexed on `(ComplaintId, RecipientId, Type, ReopenCount)`**,
+   partially, over the three SLA types (§8.9). Added in M10.
+
+**Why the fourth exists, since the first three were once thought to cover it.** Until M10 this
+section implied that "one notification per recipient per level" followed from defences 1–3. It did
+not follow — it was *borrowed*. Defences 1 and 3 protect the sweeper and the `EscalationEvent`
+table; the notification rows were safe only because defence 2 wrote them in the same transaction as
+the escalation, so a duplicate escalation rolled the notifications back with it.
+
+F16 moves breach-notification writing to a Service Bus consumer, which writes in its own
+transaction with no escalation row to collide with. That severs the borrowing completely: defence 1
+never runs there and defence 3 never fires, so a redelivered message would write a second full set
+of notifications and nothing would stop it. Defence 4 is what makes the handler idempotent for
+real, and it is enforced by the database rather than by a handler remembering to check — which also
+covers two *concurrent* deliveries, the case a check-then-act handler cannot.
 
 Consequences that are **required behaviour**, each one a test:
 
 - Running the sweep twice over the same overdue complaint produces **one** `EscalationEvent` per
   level and **one** notification per recipient per level.
+- Handling the same `SlaBreached` message any number of times produces **one** set of notifications,
+  and never throws — a handler that threw on a message it had already processed would abandon it,
+  redeliver it, and dead-letter a success.
+- A complaint reopened after a message was published does not receive that message's notification;
+  a complaint that breaches again in a *later* cycle does.
 - A complaint that crosses 80% and 100% between two sweeps gets **both** markers in one pass, in
   ladder order.
 - A complaint already at level 2 is never selected again.
@@ -1037,9 +1069,32 @@ that delivers it is in the heading; §20 is the live tracker.
   `SlaBreached` message instead of writing notifications inline, when `Sla:Transport = ServiceBus`.
 - `functions/Obhijog.Functions` — an isolated-worker Service Bus trigger that writes the
   notification rows, sharing the `Infrastructure` project.
-- Because handling is idempotent (§11.3), a redelivered message is harmless. That is the whole point
-  of the design, and a test asserts it.
+- A redelivered message is harmless because of **§11.3 defence 4**, the partial unique index on
+  `Notification` that M10 adds. It is *not* harmless because of the original three defences — those
+  protect the sweeper and the `EscalationEvent` table, and the notification guarantee was borrowed
+  from them through a shared transaction that a queue consumer does not have. §11.3 records the
+  correction; this milestone ships the mechanism rather than assuming it. A test asserts it.
+- The handler re-derives recipients at delivery rather than trusting the message, so a reassignment
+  between publish and delivery notifies whoever holds the complaint now. It drops a message whose
+  `ReopenCount` no longer matches the complaint: that breach belongs to a cycle whose clock has
+  already been reset (§11.4).
+- The message is enqueued **only once the sweeper's per-complaint transaction has committed**, and
+  published after the phase. A message enqueued inside the transaction would survive a rollback and
+  have the handler write notifications for a breach that never happened — a phantom defence 4
+  cannot catch, because nothing competing was written. The handler additionally refuses a message
+  whose complaint has no `SlaBreachedAt`, as defence in depth.
+- The cost is stated rather than hidden: a process that dies after the commits and before the
+  publishes loses those messages — *plural*, because publishing is batched to the end of the phase,
+  so the window covers every complaint committed in that pass, up to `Sla:SweepBatchSize`. The
+  breaches are durable, so what is lost is notices and not records. A transactional outbox would
+  close it and is the named follow-up.
+- A publisher that throws must not abort the pass. The sweeper catches around each publish, because
+  a notification failure taking out the level-2 and auto-close rungs behind it would be a far worse
+  outcome than a lost notice.
 - `Sla:Transport = InProcess` remains the default and must keep working.
+- Only the **breach** rung moves. Warn and level 2 keep writing inline; the message type is named
+  for one rung and F16 names one rung. Defence 4's index covers all three types, so moving the
+  others later is a change of caller, which is the property D1 bought.
 
 ---
 
@@ -1158,9 +1213,9 @@ limiting, CAPTCHA, soft delete, GDPR erasure.
 ## 18. Testing strategy
 
 **A deliberately small bar.** Four suites at the outset, chosen because each covers logic that is
-easy to get wrong and expensive to get wrong; two more have since earned their place, each with the
-reason recorded below. Do not add coverage beyond this out of habit; a pull request that adds a
-seventh suite needs a reason in its description.
+easy to get wrong and expensive to get wrong; three more have since earned their place, each with
+the reason recorded below. Do not add coverage beyond this out of habit; a pull request that adds an
+eighth suite needs a reason in its description.
 
 | Suite | File | Covers |
 |---|---|---|
@@ -1169,12 +1224,21 @@ seventh suite needs a reason in its description.
 | Sweep idempotency | `tests/Obhijog.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days; the unique index refusing a duplicate and the sweep surviving it; the §11.4 clock effects — the recategorize recompute and the reopen reset |
 | Role scoping | `tests/Obhijog.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
 | Dashboard & export | `tests/Obhijog.Tests/DashboardAndExportTests.cs` | every F13 figure against a hand-counted fixture; a Citizen's scope; the export returning exactly what the list returns; **CSV injection — a title beginning with `=`, `+`, `-` or `@`** |
+| SLA transport | `tests/Obhijog.Tests/SlaTransportTests.cs` | F16: a redelivered `SlaBreached` message writes **one** set of notifications and does not throw; ten deliveries equal one; a later reopen cycle is not suppressed and a finished one is dropped; recipients resolved at delivery, not publication; `InProcess` unchanged and publishing nothing; `ServiceBus` publishing while still writing the marker and the escalation row |
 | Token rotation | `tests/Obhijog.Tests/RefreshTokenRotationTests.cs` | rotation revokes the presented token; **reuse of a revoked token revokes the whole family**; an unknown token revokes nothing; expiry; logout revokes one device; a deactivated account cannot refresh; the claims a token carries, validated through the API's own parameters |
 
 - Sweep and scope tests run against **EF Core on a real PostgreSQL** where one is reachable, and are
   **skipped with a visible message** otherwise — never silently reported as passing. They must not
   use the EF in-memory provider: it has no transactions, no `xmin`, no unique-index enforcement and
   no `ILIKE`, so it would silently pass the exact cases §11.3 exists to guarantee.
+- **SLA transport is the seventh suite, added in M10 with the reason §18 requires.** Two of M10's
+  Definition-of-Done clauses are stated as tests rather than as behaviour — "a redelivered message
+  is provably harmless" and "`InProcess` still works" — and both failures are invisible from
+  outside: a duplicate notification looks like a notification, and a transport flag that silently
+  falls back to in-process delivery looks like a healthy system with an empty queue. It is separate
+  from the sweep suite because it tests what happens to a breach *after* detection, on either side
+  of a queue, with the handler rather than the sweeper under test in most of it. The bar is now
+  seven suites, not eight.
 - **Dashboard & export is the sixth suite, added in M8 with the reason §18 requires.** Two of
   M8's acceptance criteria are stated as tests rather than as behaviour: "every figure matches a
   hand count over the seed data", and "CSV injection neutralised — a test covers a title beginning
@@ -1250,8 +1314,9 @@ nothing. No deployed environment ever reads them, and no other file may follow t
 | `Sla:EscalationLevel2Percent` | `150` | |
 | `Sla:AutoCloseAfterDays` | `7` | |
 | `Sla:SweepBatchSize` | `200` | |
-| `Sla:Transport` | `InProcess` | `ServiceBus` from M10 |
-| `ServiceBus:ConnectionString` / `:QueueName` | — / `sla-events` | M10 only |
+| `Sla:Transport` | `InProcess` | `InProcess` or `ServiceBus`; validated at startup, so a typo fails the boot rather than silently delivering in-process |
+| `ServiceBus:ConnectionString` | — | **required when `Sla:Transport = ServiceBus`**, and only then — validated at startup so a misconfigured deployment fails on boot rather than on the first breach |
+| `ServiceBus:QueueName` | `sla-events` | The Function reads it as the flat `ServiceBusQueueName`: `%NAME%` is a literal app-setting lookup and a colon does not survive the Linux Functions host |
 | `Notifications:Delivery` | `Log` | `Email` is a later swap |
 | `Cors:Origins` | `http://localhost:4200` | |
 | `SEED_PASSWORD` | — | environment variable only; seeding fails without it |
@@ -1291,7 +1356,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☑ |
 | M8 | #9 | Dashboard & CSV export | F13, F14 | M7 | Every dashboard figure matches a hand count on seed data; the export shares the list's filter and scope code; CSV injection neutralised | ☑ |
 | M9 | #10 | Bicep & deploy workflow | F15 | M8 | `az bicep build`, `az bicep build-params` and `az bicep lint` are clean in the CI infra gate; the compiled ARM has no firewall rule, deployment script or linked template; the API image builds; the deploy workflow is dispatch-only; no secret literals. **`what-if` is not covered here** — it needs an authenticated subscription and runs from `deploy.yml` | ☑ |
-| M10 | #11 | **Stretch** — Service Bus + Functions escalation | F16 | M7 | A breach publishes to Service Bus; the Function writes the notifications; a redelivered message is provably harmless; `InProcess` still works | ☐ |
+| M10 | #11 | **Stretch** — Service Bus + Functions escalation | F16 | M7 | A breach publishes instead of notifying inline while still writing its marker and escalation row; the handler writes the notifications; **a redelivered message provably writes nothing**, asserted against a real PostgreSQL where §11.3 defence 4 exists; `InProcess` unchanged; `Obhijog.Functions` builds in the gate and the Bicep compiles and lints. **No end-to-end run** — there is no Service Bus namespace behind this project, so the transport is doubled and the Function host is never started | ☑ |
 
 M1 through M6 are a straight chain. M5 and M6 both depend only on M4 and are independent of each
 other. M9 needs M8; M10 needs M7. M9 and M10 are independent of each other.
