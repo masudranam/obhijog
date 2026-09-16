@@ -40,11 +40,41 @@ public class SlaOptions
     public int SweepBatchSize { get; set; } = 200;
 
     /// <summary>
-    /// <c>InProcess</c> today. M10 swaps the *caller* to a Service Bus message without
-    /// touching the sweep logic (§13.2, F16), which is the point of naming it here now.
+    /// <c>InProcess</c> or <c>ServiceBus</c> (§19, F16). The switch changes *who writes the
+    /// breach notification rows* — the sweeper itself, or <c>Obhijog.Functions</c> off a
+    /// queue — and nothing else. Detection, the marker and the escalation row are identical
+    /// either way, which is what D1's seam was for.
+    ///
+    /// Validated against the two known values at startup rather than treated as free text: a
+    /// typo silently falling back to in-process delivery is a misconfiguration nobody would
+    /// notice until they went looking for messages that were never published.
     /// </summary>
     [Required(AllowEmptyStrings = false)]
+    [RegularExpression("^(InProcess|ServiceBus)$",
+        ErrorMessage = "Sla:Transport must be 'InProcess' or 'ServiceBus' (SPEC.md §19).")]
     public string Transport { get; set; } = "InProcess";
+
+    /// <summary>Convenience over <see cref="Transport"/>, so the spelling lives in one place.</summary>
+    public bool UsesServiceBus =>
+        string.Equals(Transport, "ServiceBus", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// SPEC.md §19. Read only when <c>Sla:Transport = ServiceBus</c>; M10's F16.
+/// </summary>
+public class ServiceBusOptions
+{
+    public const string SectionName = "ServiceBus";
+
+    /// <summary>
+    /// Required when the transport is <c>ServiceBus</c>, and validated at startup then —
+    /// never defaulted. An empty connection string would fail on the first breach instead
+    /// of on boot, which is hours later and looks like an SLA bug rather than a config one.
+    /// </summary>
+    public string ConnectionString { get; set; } = string.Empty;
+
+    [Required(AllowEmptyStrings = false)]
+    public string QueueName { get; set; } = "sla-events";
 }
 
 /// <summary>SPEC.md §19. Delivery is a separate concern from writing the notification row.</summary>

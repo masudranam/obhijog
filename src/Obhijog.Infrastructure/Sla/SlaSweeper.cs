@@ -7,6 +7,7 @@ using Obhijog.Domain.Notifications;
 using Obhijog.Domain.Sla;
 using Obhijog.Domain.Users;
 using Obhijog.Infrastructure.Complaints;
+using Obhijog.Infrastructure.Messaging;
 using Obhijog.Infrastructure.Notifications;
 using Obhijog.Infrastructure.Options;
 using Obhijog.Infrastructure.Persistence;
@@ -44,7 +45,8 @@ namespace Obhijog.Infrastructure.Sla;
 public class SlaSweeper(
     ObhijogDbContext db,
     ComplaintTransitionService transitions,
-    INotificationSender sender,
+    NotificationDispatcher dispatcher,
+    ISlaEventPublisher publisher,
     IOptions<SlaOptions> options,
     TimeProvider timeProvider,
     ILogger<SlaSweeper> logger) : ISlaSweeper
@@ -181,7 +183,13 @@ public class SlaSweeper(
 
         WarnIfCapped(ids.Count, nameof(BreachAsync));
 
-        return await ForEachAsync(ids, examined, cancellationToken, async (complaint, ct) =>
+        // Filled inside the loop, drained after it. Publishing cannot happen inside the
+        // per-complaint transaction: a message emitted by a transaction that then rolls back
+        // would have the handler write notifications for a breach that never happened, and
+        // defence 4 cannot catch that because there is no competing row to collide with.
+        var breachedForPublication = new List<SlaBreachedMessage>();
+
+        var breached = await ForEachAsync(ids, examined, cancellationToken, async (complaint, ct) =>
         {
             complaint.SlaBreachedAt = now;
             complaint.EscalationLevel = 1;
@@ -203,6 +211,22 @@ public class SlaSweeper(
                 notifiedUserId: complaint.AssignedStaffId,
                 now);
 
+            // F16, and the only place in the sweep where the transport choice is visible.
+            // **Detection has already happened** — the marker and the escalation row are
+            // written above either way, inside this transaction. What moves is delivery.
+            //
+            // Under ServiceBus the sweeper stops here and the message published after the
+            // commit carries the work to the handler. Returning no notifications is what
+            // makes that true: a return of rows here would write them inline *and* publish,
+            // and the queue would duplicate what was already recorded.
+            if (!publisher.WritesNotificationsInline)
+            {
+                breachedForPublication.Add(
+                    new SlaBreachedMessage(complaint.Id, complaint.ReopenCount, now));
+
+                return [];
+            }
+
             return Notify(
                 complaint,
                 recipients,
@@ -211,6 +235,13 @@ public class SlaSweeper(
                 $"\"{complaint.Title}\" was due {complaint.SlaDueAt:u} and is still open.",
                 now);
         });
+
+        foreach (var message in breachedForPublication)
+        {
+            await publisher.PublishBreachAsync(message, cancellationToken);
+        }
+
+        return breached;
     }
 
     /// <summary>
@@ -456,55 +487,15 @@ public class SlaSweeper(
     /// records <c>LastError</c> <b>without failing the sweep</b> — the notification row is
     /// already durable, so a dead channel costs a retry, never an escalation.
     /// </summary>
-    private async Task DeliverAsync(
+    /// <summary>
+    /// Delivery moved to <see cref="NotificationDispatcher"/> in M10, when the Service Bus
+    /// handler became a second caller needing identical behaviour. Still called only after
+    /// the per-complaint transaction has committed.
+    /// </summary>
+    private Task DeliverAsync(
         IReadOnlyList<Notification> notifications,
-        CancellationToken cancellationToken)
-    {
-        if (notifications.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var notification in notifications)
-        {
-            notification.Attempts++;
-
-            try
-            {
-                var delivery = await sender.SendAsync(notification, cancellationToken);
-
-                if (delivery.Delivered)
-                {
-                    notification.SentAt = timeProvider.GetUtcNow();
-                    notification.LastError = null;
-                }
-                else
-                {
-                    notification.LastError = Truncate(delivery.Error);
-                }
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                // A sender that throws instead of reporting is still not allowed to take the
-                // sweep down. The row keeps its attempt count and its error.
-                notification.LastError = Truncate(exception.Message);
-
-                logger.LogWarning(
-                    exception,
-                    "Notification {NotificationId} could not be delivered.",
-                    notification.Id);
-            }
-        }
-
-        try
-        {
-            await db.SaveChangesAsync(cancellationToken);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            logger.LogWarning(exception, "Delivery outcomes could not be recorded.");
-        }
-    }
+        CancellationToken cancellationToken) =>
+        dispatcher.DeliverAsync(notifications, cancellationToken);
 
     /// <summary>
     /// One <c>EscalationEvent</c> per rung, inside the caller's transaction. The unique
@@ -552,6 +543,11 @@ public class SlaSweeper(
                 Id = Guid.CreateVersion7(),
                 RecipientId = recipient,
                 ComplaintId = complaint.Id,
+
+                // §11.3 defence 4's discriminator. Without it a reopened complaint could
+                // never be notified about again, because the unique index would see the
+                // previous cycle's row.
+                ReopenCount = complaint.ReopenCount,
                 Type = type,
                 Subject = Truncate(subject, 160)!,
                 Body = Truncate(body, 2000)!,

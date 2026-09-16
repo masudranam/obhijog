@@ -139,9 +139,29 @@ param slaEscalationLevel2Percent int = 150
 param slaAutoCloseAfterDays int = 7
 param slaSweepBatchSize int = 200
 
-@description('InProcess until M10 introduces the Service Bus transport (F16).')
+@description('''
+`InProcess` keeps breach notifications on the sweeper's own transaction. `ServiceBus` moves
+only their delivery to `Obhijog.Functions` (F16); detection, the marker and the escalation row
+are written by the sweeper either way.
+
+The namespace, queue and Function App below deploy **only** when this is `ServiceBus` — an
+InProcess environment should not pay for a broker it never publishes to.
+''')
 @allowed(['InProcess', 'ServiceBus'])
 param slaTransport string = 'InProcess'
+
+@description('''
+Service Bus tier. Basic is the cheapest that carries a queue, for the same reason the database
+is Burstable B1ms. Basic has no duplicate detection; that is deliberate and costs nothing,
+because idempotency lives in the partial unique index of §11.3 defence 4 rather than in the
+broker — and that index also covers redelivery *after* any detection window, which duplicate
+detection never could.
+''')
+@allowed(['Basic', 'Standard'])
+param serviceBusSkuName string = 'Basic'
+
+@description('Queue the sweeper publishes to and the Function consumes from. §19.')
+param serviceBusQueueName string = 'sla-events'
 
 @allowed(['Log', 'Email'])
 param notificationsDelivery string = 'Log'
@@ -500,6 +520,150 @@ resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
   }
 }
 
+// --- messaging (M10, F16) ---------------------------------------------------------------
+// Conditional on the transport, and that is not a formatting nicety: an InProcess environment
+// deploys no namespace, no queue and no Function App, so the flag is a cost decision as well
+// as a behavioural one.
+
+var deployMessaging = slaTransport == 'ServiceBus'
+
+resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = if (deployMessaging) {
+  name: 'sb-${baseName}'
+  location: location
+  tags: tags
+  sku: {
+    name: serviceBusSkuName
+    tier: serviceBusSkuName
+  }
+  properties: {
+    minimumTlsVersion: '1.2'
+    publicNetworkAccess: 'Enabled'
+    disableLocalAuth: false
+  }
+}
+
+resource slaQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = if (deployMessaging) {
+  parent: serviceBus
+  name: serviceBusQueueName
+  properties: {
+    // Five minutes of lock and five delivery attempts before the dead-letter queue. The
+    // handler is idempotent, so a redelivery costs nothing and a generous retry budget is
+    // safe rather than reckless (§11.3 defence 4).
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 5
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P14D'
+
+    // Off, and unavailable on Basic in any case. See serviceBusSkuName.
+    requiresDuplicateDetection: false
+    requiresSession: false
+  }
+}
+
+// The API publishes with this and the Function consumes with it. A send-only rule for one and
+// a listen-only rule for the other would be better, and is named as the follow-up rather than
+// half-built: it needs two authorization rules and two Key Vault secrets, and the namespace is
+// reachable only by these two components either way.
+resource serviceBusConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (deployMessaging) {
+  parent: keyVault
+  name: 'servicebus-connection-string'
+  properties: {
+    value: listKeys(
+      resourceId(
+        'Microsoft.ServiceBus/namespaces/authorizationRules',
+        'sb-${baseName}',
+        'RootManageSharedAccessKey'
+      ),
+      '2022-10-01-preview'
+    ).primaryConnectionString
+  }
+  dependsOn: [
+    serviceBus
+  ]
+}
+
+// --- the function app (M10, F16) -----------------------------------------------------------
+
+// Consumption (Y1). The consumer is idle almost all the time — a breach is rare by
+// construction — so a plan that scales to zero is the right shape as well as the cheap one.
+resource functionPlan 'Microsoft.Web/serverfarms@2023-12-01' = if (deployMessaging) {
+  name: 'plan-${baseName}-fn'
+  location: location
+  tags: tags
+  sku: {
+    name: 'Y1'
+    tier: 'Dynamic'
+  }
+  properties: {
+    reserved: true
+  }
+}
+
+resource functionApp 'Microsoft.Web/sites@2023-12-01' = if (deployMessaging) {
+  name: 'func-${baseName}'
+  location: location
+  tags: tags
+  kind: 'functionapp,linux'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${identity.id}': {}
+    }
+  }
+  properties: {
+    serverFarmId: functionPlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'DOTNET-ISOLATED|9.0'
+      minTlsVersion: '1.2'
+      ftpsState: 'Disabled'
+      keyVaultReferenceIdentity: identity.id
+      appSettings: [
+        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
+        { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'dotnet-isolated' }
+
+        // The host's own bookkeeping store. It shares the application's storage account
+        // rather than standing up a second one: the host uses its own containers and queues
+        // and never touches the attachments container.
+        {
+          name: 'AzureWebJobsStorage'
+          value: join(
+            [
+              'DefaultEndpointsProtocol=https'
+              'AccountName=${storage.name}'
+              'AccountKey=${storage.listKeys().keys[0].value}'
+              'EndpointSuffix=${environment().suffixes.storage}'
+            ],
+            ';'
+          )
+        }
+
+        // The setting the trigger's `Connection` names.
+        {
+          name: 'ServiceBus'
+          value: '@Microsoft.KeyVault(SecretUri=${serviceBusConnectionStringSecret.properties.secretUri})'
+        }
+
+        // Flat, because `%ServiceBusQueueName%` is a literal app-setting lookup and a colon
+        // in the name does not survive the Linux host.
+        { name: 'ServiceBusQueueName', value: serviceBusQueueName }
+
+        {
+          name: 'ConnectionStrings__Postgres'
+          value: '@Microsoft.KeyVault(SecretUri=${postgresConnectionStringSecret.properties.secretUri})'
+        }
+
+        { name: 'Notifications__Delivery', value: notificationsDelivery }
+      ]
+    }
+  }
+  dependsOn: [
+    keyVaultSecretsUser
+    database
+    slaQueue
+  ]
+}
+
 // --- container apps -------------------------------------------------------------------------
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -538,6 +702,16 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01'
 var corsOrigins = union(['https://${staticWebApp.properties.defaultHostname}'], additionalCorsOrigins)
 
 var useRegistryCredentials = !empty(containerRegistryServer) && !empty(containerRegistryPassword)
+
+var messagingSecretRef = deployMessaging
+  ? [
+      {
+        name: 'servicebus-connection-string'
+        keyVaultUrl: serviceBusConnectionStringSecret.properties.secretUri
+        identity: identity.id
+      }
+    ]
+  : []
 
 var keyVaultSecretRefs = [
   {
@@ -589,15 +763,25 @@ var configEnv = [
   { name: 'Sla__Transport', value: slaTransport }
 
   { name: 'Notifications__Delivery', value: notificationsDelivery }
+
+  { name: 'ServiceBus__QueueName', value: serviceBusQueueName }
 ]
 
 // The three Key Vault references. Double underscore is ASP.NET's separator for a nested
 // configuration key on every platform, Linux included (§19).
-var secretEnv = [
-  { name: 'ConnectionStrings__Postgres', secretRef: 'postgres-connection-string' }
-  { name: 'Jwt__SigningKey', secretRef: 'jwt-signing-key' }
-  { name: 'Storage__ConnectionString', secretRef: 'storage-connection-string' }
-]
+var secretEnv = concat(
+  [
+    { name: 'ConnectionStrings__Postgres', secretRef: 'postgres-connection-string' }
+    { name: 'Jwt__SigningKey', secretRef: 'jwt-signing-key' }
+    { name: 'Storage__ConnectionString', secretRef: 'storage-connection-string' }
+  ],
+  // Only when there is a namespace to point at. An InProcess environment carrying an empty
+  // ServiceBus connection string would fail the API's own startup validation — correct for a
+  // misconfigured ServiceBus deployment, wrong here.
+  deployMessaging
+    ? [{ name: 'ServiceBus__ConnectionString', secretRef: 'servicebus-connection-string' }]
+    : []
+)
 
 // `Cors:Origins` binds an array, and the configuration provider reads an array from indexed
 // keys. One variable per origin is the only spelling that survives environment variables.
@@ -641,7 +825,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             }
           ]
         : []
-      secrets: concat(keyVaultSecretRefs, registrySecret)
+      secrets: concat(keyVaultSecretRefs, messagingSecretRef, registrySecret)
     }
     template: {
       containers: [
@@ -718,3 +902,8 @@ output keyVaultName string = keyVault.name
 output storageAccountName string = storage.name
 output postgresServerName string = postgres.name
 output managedIdentityClientId string = identity.properties.clientId
+
+// Empty when the transport is InProcess, because then neither resource exists. Names only,
+// as above — no connection string, no key.
+output serviceBusNamespace string = deployMessaging ? serviceBus.name : ''
+output functionAppName string = deployMessaging ? functionApp.name : ''

@@ -31,7 +31,7 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1–M9 are done; M10 (issue #11) is the stretch that remains.** On top of the schema, the seeder and authentication,
+**M1–M10 are done; the roadmap is complete.** On top of the schema, the seeder and authentication,
 a citizen can file a complaint, attach photos to it, and track it by reference without signing in.
 `ComplaintQueryScope` is in place and every complaint query goes through it. The guard table now
 exists: all twelve rows of §12.3 live in `ComplaintStateMachine`, `ComplaintTransitionService` is
@@ -68,6 +68,22 @@ What is verified is what CI can verify: the `infra gate` job runs `az bicep buil
 — it needs a subscription this project does not have.** Do not describe M9 as deployed, or the
 template as known-good; it is known to compile. M10's Service Bus escalation is the stretch that
 remains.
+
+**Breach delivery can leave the process.** `Sla:Transport = ServiceBus` makes the sweeper publish
+an `SlaBreached` message instead of writing the breach notifications inline; `Obhijog.Functions`
+consumes it and writes them. Detection does not move — the marker and the `EscalationEvent` are
+still written by the sweeper, in its own transaction, on both paths. `InProcess` is still the
+default and still the only path anything has run end to end.
+
+**§11.3 now has four defences, and the fourth is the interesting one.** Moving notification writing
+onto a queue severed the guarantee the first three provided: "one notification per recipient per
+level" was never enforced by an index, it was borrowed from the `EscalationEvent` unique index
+through the shared transaction, and a queue consumer has no such transaction. Defence 4 is a
+partial unique index on `Notification (ComplaintId, RecipientId, Type, ReopenCount)` over the three
+SLA types. **The filter is load-bearing** — `ComplaintAssigned` legitimately recurs for the same
+recipient inside one cycle, so a blanket unique index would be wrong. Do not widen it and do not
+drop `ReopenCount` from the key; both are mutation-tested.
+
 The roadmap table in §20 is the live progress
 tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
 starting anything; tick the box in the milestone's own PR, only once the DoD really passes.
@@ -132,15 +148,16 @@ These are the rules an agent is most likely to violate. Everything else is in `.
 
 ## Testing bar — and its ceiling
 
-Six xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
-role scoping, token rotation, and dashboard & export. **Frontend tests: zero** — `ng build` is the
-frontend gate, and that is decision D6, not an oversight.
+Seven xUnit suites, listed in SPEC §18: the state machine, the SLA arithmetic, sweep idempotency,
+role scoping, token rotation, dashboard & export, and SLA transport. **Frontend tests: zero** —
+`ng build` is the frontend gate, and that is decision D6, not an oversight.
 
-Do not add coverage beyond those six out of habit. A PR that adds a seventh needs a reason in its
-description. Two have earned their place: token rotation in M3, because family revocation is an
-acceptance criterion whose failure is invisible from outside; and dashboard & export in M8, because
-"every figure matches a hand count" and "a test covers a title beginning with `=`" are themselves
-acceptance criteria.
+Do not add coverage beyond those seven out of habit. A PR that adds an eighth needs a reason in its
+description. Three have earned their place, each because a Definition of Done stated an acceptance
+criterion *as a test*: token rotation in M3, because family revocation fails invisibly from
+outside; dashboard & export in M8, for "every figure matches a hand count" and "a test covers a
+title beginning with `=`"; and SLA transport in M10, for "a redelivered message is provably
+harmless" and "`InProcess` still works".
 
 ## Commands
 
@@ -204,11 +221,13 @@ src/Obhijog.Infrastructure/          DbContext, migrations, seed, blob, sweeper,
                                        → .claude/rules/data-ef.md
 src/Obhijog.Api/                     Program.cs, Endpoints/, auth, ProblemDetails
                                        → .claude/rules/backend-dotnet.md
-tests/Obhijog.Tests/                 the four suites
+tests/Obhijog.Tests/                 the seven suites
 web/                                 Angular 20 workspace
                                        → .claude/rules/frontend-angular.md
 infra/                               docker-compose, Bicep (M9)
-functions/                           M10 only
+functions/Obhijog.Functions/         the SlaBreached consumer (M10) — a trigger and nothing
+                                       else; the handler lives in Infrastructure so it can be
+                                       tested without Azure
 docs/adr/                            decisions costly to reverse
 ```
 

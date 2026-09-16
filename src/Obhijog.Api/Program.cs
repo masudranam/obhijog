@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using Azure.Messaging.ServiceBus;
 using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Features;
@@ -16,6 +17,7 @@ using Obhijog.Infrastructure.Complaints;
 using Obhijog.Infrastructure.Dashboard;
 using Obhijog.Infrastructure.Export;
 using Obhijog.Infrastructure.Identity;
+using Obhijog.Infrastructure.Messaging;
 using Obhijog.Infrastructure.Notifications;
 using Obhijog.Infrastructure.Options;
 using Obhijog.Infrastructure.Persistence;
@@ -68,6 +70,31 @@ builder.Services.AddOptions<SlaOptions>()
 builder.Services.AddOptions<NotificationOptions>()
     .Bind(builder.Configuration.GetSection(NotificationOptions.SectionName))
     .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// F16's flag, read once. Everything below that depends on the transport reads this rather
+// than the configuration again — two reads of one key is two chances to spell it differently,
+// and the registration and the validation disagreeing would be invisible until a breach.
+//
+// Absent means InProcess. That is the documented default (§19) and appsettings.json states
+// it explicitly, but the null case is handled here rather than relied upon.
+var usesServiceBus = string.Equals(
+    builder.Configuration[$"{SlaOptions.SectionName}:{nameof(SlaOptions.Transport)}"],
+    "ServiceBus",
+    StringComparison.OrdinalIgnoreCase);
+
+// The connection string is required only when the transport actually needs it, so it cannot
+// be a [Required] attribute: the default InProcess deployment has no Service Bus namespace
+// and must not be made to invent one. Validated at startup all the same, so a ServiceBus
+// deployment missing its connection string fails on boot rather than hours later on the
+// first breach, where it would look like an SLA bug rather than a configuration one.
+builder.Services.AddOptions<ServiceBusOptions>()
+    .Bind(builder.Configuration.GetSection(ServiceBusOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(
+        o => !usesServiceBus || !string.IsNullOrWhiteSpace(o.ConnectionString),
+        "ServiceBus:ConnectionString is required when Sla:Transport is 'ServiceBus' "
+        + "(SPEC.md §19).")
     .ValidateOnStart();
 
 // IsNullOrWhiteSpace, not a null check: an empty value in appsettings.json binds to ""
@@ -139,6 +166,23 @@ builder.Services.AddScoped<ISlaSweeper, SlaSweeper>();
 // The MVP channel of F12. Swapping in email is a different registration here and no other
 // change anywhere — the sweeper writes the row and never formats a message for a channel.
 builder.Services.AddScoped<INotificationSender, LogNotificationSender>();
+builder.Services.AddScoped<NotificationDispatcher>();
+
+// `Sla:Transport` picks which publisher the sweeper gets; the sweep logic is identical
+// either way, which is the property D1 traded five Azure services for. A registration-time
+// decision rather than a per-breach branch, so a deployment has one transport and not one
+// per pass.
+if (usesServiceBus)
+{
+    builder.Services.AddSingleton(serviceProvider => new ServiceBusClient(
+        serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.ConnectionString));
+
+    builder.Services.AddScoped<ISlaEventPublisher, ServiceBusSlaEventPublisher>();
+}
+else
+{
+    builder.Services.AddScoped<ISlaEventPublisher, InProcessSlaEventPublisher>();
+}
 
 // Registered unconditionally; Sla:SweepIntervalSeconds = 0 makes it return immediately with
 // a log line saying so. Skipping the registration instead would make a disabled sweeper
