@@ -18,20 +18,26 @@ WORKDIR /src
 # Directory.Build.props and Directory.Packages.props come first because central
 # package management means the restore genuinely cannot resolve a version without
 # them, not merely that it would be slower.
-COPY Directory.Build.props Directory.Packages.props Obhijog.sln ./
+COPY Directory.Build.props Directory.Packages.props ./
 COPY src/Obhijog.Domain/Obhijog.Domain.csproj                 src/Obhijog.Domain/
 COPY src/Obhijog.Infrastructure/Obhijog.Infrastructure.csproj src/Obhijog.Infrastructure/
 COPY src/Obhijog.Api/Obhijog.Api.csproj                       src/Obhijog.Api/
-COPY tests/Obhijog.Tests/Obhijog.Tests.csproj                 tests/Obhijog.Tests/
 
-# The solution references the test project, so restoring the solution restores it too.
-# Restoring the API project alone would skip it and leave `dotnet build` to discover
-# the gap later.
-RUN dotnet restore Obhijog.sln
+# Restores the API project and what it transitively references — Infrastructure, then
+# Domain — rather than the solution.
+#
+# It restored Obhijog.sln until M10, on the reasoning that the solution restore also
+# covered the test project. That reasoning coupled this file to the solution's contents,
+# and M10 broke it: adding functions/Obhijog.Functions made the restore fail with
+# "The project file ... was not found", because the solution listed a project no COPY
+# above brings in. The image publishes the API and nothing else, so it has no business
+# knowing how many projects the solution has. Validating the whole solution is the CI
+# gate's job, on the same SHA, where `dotnet restore` and `dotnet build` already run.
+RUN dotnet restore src/Obhijog.Api/Obhijog.Api.csproj
 
 COPY src/ src/
 
-# Only the API is published; the test project is restored above but never built here.
+# Only the API is published.
 # TreatWarningsAsErrors is on for every project (Directory.Build.props), so this stage
 # fails on a warning — which is the intent: the image and the CI gate hold the same bar.
 RUN dotnet publish src/Obhijog.Api/Obhijog.Api.csproj \
