@@ -1260,9 +1260,11 @@ eighth suite needs a reason in its description.
   `404` — rested on a manual probe and on nothing else. The pr-reviewer on M6 showed the gap by
   replacing every `throw new NotFoundException` in the services with `ForbiddenException` and
   watching all 85 tests stay green. The cases are a cross product rather than three examples,
-  because the invariant is about the *set* of entry points, not about three of them: a tenth scoped
-  method added without a row in `ScopedEntryPoints` is the regression the list exists to make
-  visible. This is not an eighth suite — role scoping is where these belong, and that suite gained
+  because the invariant is about the *set* of entry points, not about three of them.
+  `ScopedEntryPoints` is a hand-maintained list and does not enforce itself — a tenth scoped method
+  added without a row there fails nothing. It is a checklist a reviewer can diff against the
+  services in one pass, and making it enforceable would take a reflection test over every public
+  method taking a `complaintId`. This is not an eighth suite — role scoping is where these belong, and that suite gained
   a `PostgresFixture` to hold them, having been entirely in-memory until now.
 - **Frontend: zero tests.** `ng build` is the gate. This is decision D6, not an omission.
 - No test spins up Azurite; `IAttachmentStore` is doubled.

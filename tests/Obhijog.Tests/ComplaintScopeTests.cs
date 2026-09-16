@@ -391,12 +391,26 @@ public class ComplaintScopeTests(PostgresFixture postgres) : IClassFixture<Postg
     // seam with EF and a projection, not the seam on its own.
     // ---------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Deliberately a month after <c>SlaSweeperTests.Noon</c> (2026-04-02).
+    ///
+    /// The suites share one database (#50) and <c>SlaSweeperTests</c> asserts against
+    /// <c>SlaSweepResult.Examined</c>, which counts every complaint in it. A fixture whose
+    /// SLA window overlapped the sweeper's clock would be selected by its <c>WHERE</c>
+    /// clause and turn that assertion red from another file — which #50 has already caused
+    /// twice. The gap is what keeps this suite invisible to it, so it is not a free choice.
+    /// </summary>
     private static readonly DateTimeOffset Noon = new(2026, 5, 4, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>
     /// Every service method that resolves a complaint by id through the scope — not only
-    /// the three #38 named. A tenth entry point added later without a row here is the
-    /// regression this list exists to make visible.
+    /// the three #38 named, because the invariant is about the set of them.
+    ///
+    /// It is a hand-maintained list and it does <b>not</b> enforce itself: a tenth scoped
+    /// method added without a row here fails nothing. What it is, is a checklist a reviewer
+    /// can diff against the services in one pass. Making it enforceable would mean a
+    /// reflection test over every public method taking a <c>complaintId</c>, which is worth
+    /// filing and is not worth smuggling into a test PR.
     /// </summary>
     public static readonly string[] ScopedEntryPoints =
     [
@@ -820,12 +834,18 @@ public class ComplaintScopeTests(PostgresFixture postgres) : IClassFixture<Postg
     /// <summary>
     /// A blob store that refuses to be written to.
     ///
-    /// <c>AttachmentService.UploadAsync</c> checks the scope before it checks the content
-    /// type, the size, or anything else — so an out-of-scope upload must be refused with
-    /// nothing having reached storage. Throwing here is what proves that ordering: move the
-    /// scope check below the upload and the theory fails with an
-    /// <see cref="InvalidOperationException"/> instead of the expected
+    /// An out-of-scope upload must be refused with nothing having reached storage. Throwing
+    /// here is what proves it: move the scope check below the upload and the theory fails
+    /// with an <see cref="InvalidOperationException"/> instead of the expected
     /// <c>NotFoundException</c>.
+    ///
+    /// That is the whole of the claim, and it is narrower than "the scope check is the first
+    /// statement in the method". The theory uploads a valid 1024-byte PNG, so it sails
+    /// through the content-type, size and empty-file guards either way — the reviewer on #56
+    /// moved the check below all three and nothing went red. Deliberately not pinned: an
+    /// out-of-scope caller sending a bad content type would get <c>415</c>, but so would a
+    /// caller naming a complaint that never existed, so the two stay indistinguishable and
+    /// §9.2 is untouched. A test for that ordering would pin a preference, not an invariant.
     ///
     /// <c>CreateReadUrl</c> answers normally, because the read paths call it for attachments
     /// the caller is entitled to and it is not what is under test.
