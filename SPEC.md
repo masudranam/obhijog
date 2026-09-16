@@ -1000,16 +1000,36 @@ that delivers it is in the heading; §20 is the live tracker.
   cheapest tier that exists — this is a portfolio project) plus its database, a Storage account with
   the private container, a Container Apps environment and app for the API, a Static Web App for
   `web/`, Key Vault, and a user-assigned managed identity carrying the Blob role assignment.
-- **Firewall:** no `0.0.0.0` rule. The Container App reaches the database over VNet integration, or
-  failing that through `allowAzureServices` — never a public allow-all, not even briefly.
+- **Firewall:** no firewall rule at all. The Container App reaches the database over VNet
+  integration, and the server is VNet-injected so it has no public endpoint to put a rule on.
+  `allowAzureServices` was the documented fallback and is no longer permitted: it *is* a firewall
+  rule — the `0.0.0.0`–`0.0.0.0` AllowAllAzureServices one — so the CI gate below rejects it along
+  with every other. Never a public allow-all, not even briefly.
 - **No secret literals.** The API reads `ConnectionStrings:Postgres`, `Jwt:SigningKey` and
   `Storage:ConnectionString` from Key Vault references; Blob access prefers managed identity.
 - Database auth uses a password in Key Vault. Entra-managed-identity auth to PostgreSQL is
   possible and is the better end state, but it needs a token-refreshing connection provider — it is
   named here as the follow-up rather than half-built (see D10).
 - `Dockerfile` for the API: multi-stage, non-root, builds.
+- `web/public/staticwebapp.config.json`: `navigationFallback` to `/index.html`. Static Web Apps
+  does no SPA fallback without it, so every Angular deep link 404s on refresh — it ships in
+  `public/`, which the build copies to the root of the folder the deploy workflow uploads.
 - `.github/workflows/deploy.yml` is **`workflow_dispatch` only** — it never fires on push.
-- Acceptance: `az deployment group what-if` reports no errors. Actually deploying is optional.
+- Acceptance: the template compiles (`az bicep build`), the parameter file compiles against it
+  (`az bicep build-params`), it lints clean (`az bicep lint`), the API image builds, and the
+  compiled ARM contains none of `0.0.0.0`, `firewallRules`, `deploymentScripts` or `templateLink`
+  — the last two because they are the ways to open the database from somewhere this gate cannot
+  read. All of it runs in the CI `infra gate` on every commit.
+  `az deployment group what-if` reporting no errors is the acceptance criterion for an
+  environment that has a subscription behind it; see the note below. Actually deploying is
+  optional.
+- **What CI can and cannot check.** `az bicep build`, `az bicep build-params` and `az bicep lint`
+  are a compiler and a static analyser: no subscription, no credential, no network. They run in the
+  `infra gate` job on every SHA, and `infra/bicepconfig.json` raises the rules this milestone leans
+  on — `outputs-should-not-contain-secrets`, `secure-parameter-default` — from warning to error.
+  `what-if` is a different kind of check: it asks a live subscription what would change, so it
+  cannot run there. It is the `what-if` mode of `deploy.yml`, run by hand. A template that compiles
+  and lints clean is not a template that is known to deploy, and the roadmap's §20 row says so.
 
 ### F16 — Async escalation via Service Bus + Functions · M10 · **stretch**
 
@@ -1270,7 +1290,7 @@ Definition of Done actually passing. Update it in the milestone's own pull reque
 | M6 | #7 | State machine, transitions, history, comments | F7, F8, F9 | M4 | `New→Assigned→InProgress→Resolved→Closed` plus `reject` and `reopen`, all driven from the UI; every guard-table row tested; internal comments invisible to Citizens | ☑ |
 | M7 | #8 | SLA engine: warning, breach, escalation, notifications | F10, F11, F12 | M6 | A seeded overdue complaint escalates L1 then L2; **a second sweep changes nothing**; badges and the breach list render; the manual sweep endpoint returns counters | ☑ |
 | M8 | #9 | Dashboard & CSV export | F13, F14 | M7 | Every dashboard figure matches a hand count on seed data; the export shares the list's filter and scope code; CSV injection neutralised | ☑ |
-| M9 | #10 | Bicep & deploy workflow | F15 | M8 | `az deployment group what-if` is clean; the API image builds; the deploy workflow is dispatch-only; no secret literals | ☐ |
+| M9 | #10 | Bicep & deploy workflow | F15 | M8 | `az bicep build`, `az bicep build-params` and `az bicep lint` are clean in the CI infra gate; the compiled ARM has no firewall rule, deployment script or linked template; the API image builds; the deploy workflow is dispatch-only; no secret literals. **`what-if` is not covered here** — it needs an authenticated subscription and runs from `deploy.yml` | ☑ |
 | M10 | #11 | **Stretch** — Service Bus + Functions escalation | F16 | M7 | A breach publishes to Service Bus; the Function writes the notifications; a redelivered message is provably harmless; `InProcess` still works | ☐ |
 
 M1 through M6 are a straight chain. M5 and M6 both depend only on M4 and are independent of each

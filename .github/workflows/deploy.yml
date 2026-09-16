@@ -1,0 +1,233 @@
+name: deploy
+
+# **Dispatch only.** SPEC.md §14 F15 requires this and there is no `push:` trigger below —
+# a merge to `main` deploys nothing. Two reasons, and the second is the real one: this is a
+# portfolio project whose Azure subscription may not exist on any given day, and a workflow
+# that fails on every merge for that reason trains you to ignore red.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'what-if previews the change; deploy applies it.'
+        type: choice
+        required: true
+        default: what-if
+        options:
+          - what-if
+          - deploy
+      environment:
+        description: 'Environment moniker. Selects the resource group and the parameter values.'
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - stg
+          - prod
+      deployWeb:
+        description: 'Also build web/ and upload it to the Static Web App.'
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  # One deployment at a time per environment. Two overlapping `az deployment group create`
+  # calls against the same group is how a Container App ends up on a revision nobody chose.
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # OIDC. There is no service principal secret anywhere in this repository — the federated
+  # credential on the app registration trusts this workflow's identity token instead, so
+  # there is no client secret to rotate and none to leak. Configure it with a subject of
+  # `repo:<owner>/<repo>:environment:<environment>`.
+  id-token: write
+  # Pushing the API image to GitHub Container Registry.
+  packages: write
+
+env:
+  DOTNET_NOLOGO: 'true'
+  NODE_VERSION: '20.x'
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/obhijog-api
+
+jobs:
+  # ---------------------------------------------------------------------------------------
+  # Build and push the API image. Runs for what-if too: an image reference that cannot be
+  # pulled is a deployment failure worth discovering during the preview, and the digest is
+  # what the template is planned against.
+  # ---------------------------------------------------------------------------------------
+  image:
+    name: api image
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:${{ inputs.environment }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Pinned by digest rather than by tag. A tag is a moving pointer, so deploying
+      # `:dev` twice can deploy two different images and the revision history will not
+      # show it.
+      - name: pin the digest
+        id: push
+        run: echo "image=${IMAGE_NAME}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------------------
+  # The infrastructure. what-if and deploy differ by one command, deliberately: the thing
+  # previewed is the thing applied, from the same template and the same parameters.
+  # ---------------------------------------------------------------------------------------
+  infrastructure:
+    name: ${{ inputs.mode }} (${{ inputs.environment }})
+    needs: image
+    runs-on: ubuntu-latest
+    # The environment gates `deploy` behind whatever reviewers are configured on it, and
+    # scopes the OIDC subject. It is also where the secrets below live.
+    environment: ${{ inputs.environment }}
+    outputs:
+      staticWebAppName: ${{ steps.outputs.outputs.staticWebAppName }}
+      apiUrl: ${{ steps.outputs.outputs.apiUrl }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # The secure parameters reach main.bicepparam through the environment and nowhere
+      # else — see the comment at the top of that file. Empty is not a usable value: each
+      # has a @minLength the deployment validates before it creates anything.
+      - name: what-if
+        if: inputs.mode == 'what-if'
+        env:
+          OBHIJOG_POSTGRES_PASSWORD: ${{ secrets.OBHIJOG_POSTGRES_PASSWORD }}
+          OBHIJOG_JWT_SIGNING_KEY: ${{ secrets.OBHIJOG_JWT_SIGNING_KEY }}
+          OBHIJOG_SEED_PASSWORD: ${{ secrets.OBHIJOG_SEED_PASSWORD }}
+          OBHIJOG_CONTAINER_IMAGE: ${{ needs.image.outputs.image }}
+        run: >-
+          az deployment group what-if
+          --resource-group ${{ vars.AZURE_RESOURCE_GROUP }}
+          --template-file infra/main.bicep
+          --parameters infra/main.bicepparam
+          --parameters environmentName=${{ inputs.environment }}
+
+      - name: deploy
+        id: deploy
+        if: inputs.mode == 'deploy'
+        env:
+          OBHIJOG_POSTGRES_PASSWORD: ${{ secrets.OBHIJOG_POSTGRES_PASSWORD }}
+          OBHIJOG_JWT_SIGNING_KEY: ${{ secrets.OBHIJOG_JWT_SIGNING_KEY }}
+          OBHIJOG_SEED_PASSWORD: ${{ secrets.OBHIJOG_SEED_PASSWORD }}
+          OBHIJOG_CONTAINER_IMAGE: ${{ needs.image.outputs.image }}
+        run: >-
+          az deployment group create
+          --resource-group ${{ vars.AZURE_RESOURCE_GROUP }}
+          --name obhijog-${{ github.run_id }}
+          --template-file infra/main.bicep
+          --parameters infra/main.bicepparam
+          --parameters environmentName=${{ inputs.environment }}
+
+      # Read back from the deployment rather than from the step above: `--query` on a
+      # create returns the same values, but reading the named deployment also works when
+      # the job is re-run against an unchanged environment.
+      - name: read outputs
+        id: outputs
+        if: inputs.mode == 'deploy'
+        run: |
+          set -euo pipefail
+          outputs=$(az deployment group show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "obhijog-${{ github.run_id }}" \
+            --query properties.outputs -o json)
+          echo "staticWebAppName=$(echo "$outputs" | jq -r '.staticWebAppName.value')" >> "$GITHUB_OUTPUT"
+          echo "apiUrl=$(echo "$outputs" | jq -r '.apiUrl.value')" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------------------
+  # The front end. Built against the API URL the deployment just reported, so §19's
+  # "apiBaseUrl must match the API" holds without anyone editing a file by hand.
+  # ---------------------------------------------------------------------------------------
+  web:
+    name: web
+    needs: infrastructure
+    if: inputs.mode == 'deploy' && inputs.deployWeb
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      - name: point the build at the deployed API
+        env:
+          API_URL: ${{ needs.infrastructure.outputs.apiUrl }}
+        run: |
+          set -euo pipefail
+          test -n "$API_URL"
+          # environment.production.ts is the file angular.json's `fileReplacements` swaps
+          # in for a production build. The deployed API's hostname is not knowable until the
+          # deployment above has run, so it is written here rather than committed — see the
+          # comment in the committed file, which says the same thing from the other side.
+          cat > src/environments/environment.production.ts <<EOF
+          export const environment = {
+            production: true,
+            apiBaseUrl: '${API_URL}/api/v1',
+          };
+          EOF
+        working-directory: web
+
+      # Zero frontend tests by decision (SPEC D6) — this build is the only check, and it is
+      # the same one the CI gate runs.
+      - run: npm run build
+        working-directory: web
+
+      - name: azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: upload to the static web app
+        env:
+          SWA_NAME: ${{ needs.infrastructure.outputs.staticWebAppName }}
+        run: |
+          set -euo pipefail
+          npm install -g @azure/static-web-apps-cli
+          token=$(az staticwebapp secrets list \
+            --name "$SWA_NAME" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query properties.apiKey -o tsv)
+          swa deploy web/dist/obhijog-web/browser \
+            --deployment-token "$token" \
+            --env production

@@ -31,7 +31,7 @@ Sections you will need constantly:
 
 ## Where we are
 
-**M1–M8 are done; M9 (issue #10) is next.** On top of the schema, the seeder and authentication,
+**M1–M9 are done; M10 (issue #11) is the stretch that remains.** On top of the schema, the seeder and authentication,
 a citizen can file a complaint, attach photos to it, and track it by reference without signing in.
 `ComplaintQueryScope` is in place and every complaint query goes through it. The guard table now
 exists: all twelve rows of §12.3 live in `ComplaintStateMachine`, `ComplaintTransitionService` is
@@ -52,8 +52,22 @@ the same seam as every other read, so a Citizen gets the same shape over their o
 `ComplaintService.ScopedAndFiltered` rather than owning a query — and every CSV field is quoted
 with a leading `=`, `+`, `-` or `@` neutralised.
 
-**Nothing is deployed.** There is no Bicep, no deploy workflow and no Azure anything — that is
-M9, and M10's Service Bus escalation is the stretch after it.
+**The Azure footprint exists as code, and has never been deployed.** `infra/main.bicep` is the
+whole thing — a Burstable PostgreSQL flexible server, a private blob container, Key Vault, a
+Container Apps environment and app, a Static Web App, and a user-assigned identity carrying the
+role assignments. The database is VNet-injected, so it has no public endpoint and Azure rejects a
+firewall rule against it. Bicep would still compile one, so the `infra gate` greps the compiled ARM
+for `0.0.0.0` and `firewallRules` and fails on either — that step is the enforcement, not the
+comment next to it. The three secrets arrive as `@secure()` parameters, land in Key Vault, and come
+back as Key Vault references; none is a deployment output. `.github/workflows/deploy.yml` is
+`workflow_dispatch` only.
+
+What is verified is what CI can verify: the `infra gate` job runs `az bicep build`,
+`build-params` and `lint` (with `infra/bicepconfig.json` raising the secret-related rules to
+`error`) and builds the API image on every SHA. **`az deployment group what-if` has not been run
+— it needs a subscription this project does not have.** Do not describe M9 as deployed, or the
+template as known-good; it is known to compile. M10's Service Bus escalation is the stretch that
+remains.
 The roadmap table in §20 is the live progress
 tracker: `☐` not started, `◐` in progress, `☑` done with its DoD actually passing. Read it before
 starting anything; tick the box in the milestone's own PR, only once the DoD really passes.

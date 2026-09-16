@@ -532,7 +532,11 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
 
         Assert.Equal(ComplaintStatus.Closed, swept.Status);
         Assert.Equal(Noon, swept.ClosedAt);
-        Assert.Equal(1, result.AutoClosed);
+
+        // At least one, not exactly one. `AutoClosed` counts the whole database and these
+        // suites share one — see the note on AutoCloseDoesNotRunTwice. What this test is
+        // about is the complaint above, and the assertions around this line are what say so.
+        Assert.True(result.AutoClosed >= 1);
 
         var history = await db.ComplaintStatusHistories
             .AsNoTracking()
@@ -560,15 +564,30 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
             status: ComplaintStatus.Resolved,
             resolvedAt: Noon.AddDays(-6));
 
-        var result = await world.Sweeper(db).SweepAsync();
+        await world.Sweeper(db).SweepAsync();
 
-        Assert.Equal(0, result.AutoClosed);
+        // Scoped to this complaint rather than to the pass's counter, for the reason given
+        // on AutoCloseDoesNotRunTwice.
         Assert.Equal(ComplaintStatus.Resolved, (await Reload(db, complaint.Id)).Status);
+
+        Assert.Empty(
+            await db.ComplaintStatusHistories
+                .AsNoTracking()
+                .Where(h => h.ComplaintId == complaint.Id)
+                .ToListAsync());
     }
 
     /// <summary>
     /// Auto-close is idempotent for the same reason the rungs are: once closed, the
     /// complaint no longer matches the phase's <c>Status = Resolved</c> predicate.
+    ///
+    /// <b>Asserted on this complaint's own rows, never on the pass counters.</b> Every suite
+    /// shares one PostgreSQL (<see cref="PostgresFixture"/>) with no per-test cleanup, and
+    /// xUnit runs test classes in parallel, so <c>SlaSweepResult.AutoClosed</c> counts work
+    /// this test did not ask for. Concretely: the dashboard suite's fixture holds a complaint
+    /// resolved forty days ago, and any sweep that overlaps it auto-closes that one too. This
+    /// assertion used to read <c>Assert.Equal(0, second.AutoClosed)</c> and failed in CI for
+    /// exactly that reason — a real race between two suites, not a flake to re-run away.
     /// </summary>
     [RequiresPostgresFact]
     public async Task AutoCloseDoesNotRunTwice()
@@ -583,15 +602,16 @@ public class SlaSweeperTests(PostgresFixture postgres) : IClassFixture<PostgresF
             resolvedAt: Noon.AddDays(-8));
 
         await world.Sweeper(db).SweepAsync();
-        var second = await world.Sweeper(db).SweepAsync();
-
-        Assert.Equal(0, second.AutoClosed);
+        await world.Sweeper(db).SweepAsync();
 
         var closures = await db.ComplaintStatusHistories
             .AsNoTracking()
             .CountAsync(h => h.ComplaintId == complaint.Id && h.IsSystem);
 
+        // One closure, not two: this is the property, and it is the one the counter was
+        // only ever a proxy for.
         Assert.Equal(1, closures);
+        Assert.Equal(ComplaintStatus.Closed, (await Reload(db, complaint.Id)).Status);
     }
 
     /// <summary>

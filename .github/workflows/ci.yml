@@ -150,6 +150,113 @@ jobs:
       - run: npm run build
         working-directory: web
 
+  # Infrastructure. `az bicep build` is a compiler, not a deployment: it needs no
+  # subscription, no credential and no network, so the template is type-checked on the exact
+  # SHA that merges rather than once, by hand, on a laptop. `az bicep lint` then applies
+  # infra/bicepconfig.json, where the rules that back this milestone's claims — no secret in
+  # an output, no default on a secure parameter — are set to `error` rather than `warning`.
+  #
+  # What this job does NOT do is `az deployment group what-if`, which needs an authenticated
+  # subscription. That runs from .github/workflows/deploy.yml, by hand, against a real one.
+  infra:
+    name: infra gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned rather than taken from whatever the runner image ships, so a Bicep release
+      # cannot turn a green gate red overnight without a commit saying so.
+      - name: install bicep
+        run: az bicep install --version v0.31.92
+
+      - name: compile the template
+        run: az bicep build --file infra/main.bicep --outfile "$RUNNER_TEMP/main.json"
+
+      # F15's headline property, checked rather than asserted.
+      #
+      # This step exists because the claim it enforces was wrong the first time it was
+      # written. The template said a public firewall rule was "unrepresentable" — it is not.
+      # `bicep build` compiles a `flexibleServers/firewallRules` resource with
+      # `startIpAddress: '0.0.0.0'` perfectly happily; Azure's control plane rejects it at
+      # deploy time because the server is VNet-injected, but nothing in this repository did.
+      #
+      # **Which of these four greps is load-bearing, precisely.** `firewallRules` is: a
+      # resource type is always a literal in the compiled ARM, so no firewall rule of any
+      # shape evades it whatever the addresses are. The `0.0.0.0` grep is *not* airtight and
+      # the earlier version of this comment wrongly said it was — `var o = '0'` with
+      # `'${o}.${o}.${o}.${o}'` compiles to a `format()` call and slips straight past it. It
+      # stays because it is free and catches the obvious spelling, not because it is a wall.
+      #
+      # `deploymentScripts` and `templateLink` are here because they are the two ways to add
+      # a firewall rule that never appears in this template at all: a script shelling out to
+      # `az postgres flexible-server firewall-rule create` (note the CLI hyphenates it, so
+      # the grep above misses it), and a linked deployment whose body lives at a URI. This
+      # template has no legitimate use for either, so failing on them costs nothing.
+      - name: no public database firewall rule
+        run: |
+          set -uo pipefail
+
+          # Without this the step fails *open*: four greps against a missing file print
+          # "No such file or directory", leave status at 0, and the gate reports clean
+          # having read nothing. The compile step above would fail the job first, so this
+          # is not reachable today — but "not reachable today" is not a property a gate
+          # should rely on, and this repository already says so about its own hooks.
+          [ -s "$RUNNER_TEMP/main.json" ] || {
+            echo "::error::No compiled template to check. The compile step should have failed before this one."
+            exit 1
+          }
+
+          status=0
+          fail() {
+            grep -ni "$1" "$RUNNER_TEMP/main.json" && {
+              echo "::error file=infra/main.bicep::$2"
+              status=1
+            }
+            return 0
+          }
+          fail '0\.0\.0\.0'      'The compiled template contains 0.0.0.0. SPEC §14 F15 forbids a public firewall rule on the database.'
+          fail 'firewallRules'   'The compiled template declares a firewall rule. The database is VNet-injected and has no firewall (SPEC §14 F15).'
+          fail 'deploymentScripts' 'The compiled template runs a deployment script, which could open the database outside the template. SPEC §14 F15.'
+          fail 'templateLink'    'The compiled template links an external template, whose contents this gate cannot see. SPEC §14 F15.'
+          if [ "$status" = 0 ]; then
+            echo "Clean: no 0.0.0.0, no firewallRules, no deploymentScripts, no templateLink."
+          fi
+          exit "$status"
+
+      # Compiles the parameter file against the template: a parameter renamed in main.bicep
+      # and not here is an error, which is the failure this catches.
+      #
+      # main.bicepparam reads the three secure parameters from the environment with no
+      # fallback, so it will not compile without them. These are generated here, used by a
+      # compiler, and thrown away with the runner — they are not credentials to anything,
+      # they reach no service, and they are not the §19 literal exception either, because
+      # nothing is written down. Hard-coding placeholders instead would put credential-shaped
+      # strings in a committed file for no gain.
+      - name: compile the parameters
+        env:
+          OBHIJOG_POSTGRES_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Aa1!aA
+          OBHIJOG_JWT_SIGNING_KEY: ${{ github.sha }}${{ github.sha }}
+          OBHIJOG_SEED_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Aa1!aA
+        run: az bicep build-params --file infra/main.bicepparam --outfile /dev/null
+
+      - name: lint
+        run: az bicep lint --file infra/main.bicep
+
+      # Required before the step below. The default docker driver cannot export a build
+      # cache at all, so `cache-to: gha` fails the job outright without buildx.
+      - uses: docker/setup-buildx-action@v3
+
+      # F15 says the API image builds. Asserting it and verifying it are different things.
+      # No push: CI proves it compiles, deploy.yml is what publishes it.
+      - name: build the api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # The hooks and the verdict recorder gate every merge. A syntax error in one of
   # them fails open, which is the worst way for a gate to fail — so this job runs
   # from the very first commit, before there is any application code.
