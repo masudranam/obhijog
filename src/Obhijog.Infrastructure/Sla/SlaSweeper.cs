@@ -183,13 +183,23 @@ public class SlaSweeper(
 
         WarnIfCapped(ids.Count, nameof(BreachAsync));
 
-        // Filled inside the loop, drained after it. Publishing cannot happen inside the
-        // per-complaint transaction: a message emitted by a transaction that then rolls back
-        // would have the handler write notifications for a breach that never happened, and
-        // defence 4 cannot catch that because there is no competing row to collide with.
+        // Filled by the post-commit callback below, drained after the loop.
+        //
+        // **Enqueued on commit, not in the transaction, and this distinction was a bug once.**
+        // The first version of this added to the list inside `act`, which runs *before*
+        // SaveChanges and Commit. A complaint whose transaction then rolled back — an xmin
+        // conflict because someone resolved it in the same instant, or any transient commit
+        // failure — was skipped by the catch in ForEachAsync and published anyway. The handler
+        // would then write breach notifications for a complaint that is not breached, and
+        // defence 4 cannot catch that: there is no competing row, because nothing was written.
+        // The phantom this ordering is supposed to make impossible was reachable.
         var breachedForPublication = new List<SlaBreachedMessage>();
 
-        var breached = await ForEachAsync(ids, examined, cancellationToken, async (complaint, ct) =>
+        var breached = await ForEachAsync(
+            ids,
+            examined,
+            cancellationToken,
+            async (complaint, ct) =>
         {
             complaint.SlaBreachedAt = now;
             complaint.EscalationLevel = 1;
@@ -215,15 +225,12 @@ public class SlaSweeper(
             // **Detection has already happened** — the marker and the escalation row are
             // written above either way, inside this transaction. What moves is delivery.
             //
-            // Under ServiceBus the sweeper stops here and the message published after the
-            // commit carries the work to the handler. Returning no notifications is what
-            // makes that true: a return of rows here would write them inline *and* publish,
-            // and the queue would duplicate what was already recorded.
+            // Under ServiceBus the sweeper stops here and a message, enqueued only once this
+            // transaction has committed, carries the work to the handler. Returning no
+            // notifications is what makes that true: a return of rows here would write them
+            // inline *and* publish, and the queue would duplicate what was already recorded.
             if (!publisher.WritesNotificationsInline)
             {
-                breachedForPublication.Add(
-                    new SlaBreachedMessage(complaint.Id, complaint.ReopenCount, now));
-
                 return [];
             }
 
@@ -234,11 +241,34 @@ public class SlaSweeper(
                 $"Complaint {complaint.ReferenceNumber} has breached its SLA",
                 $"\"{complaint.Title}\" was due {complaint.SlaDueAt:u} and is still open.",
                 now);
-        });
+        },
+            committed: complaint =>
+            {
+                if (!publisher.WritesNotificationsInline)
+                {
+                    breachedForPublication.Add(
+                        new SlaBreachedMessage(complaint.Id, complaint.ReopenCount, now));
+                }
+            });
 
         foreach (var message in breachedForPublication)
         {
-            await publisher.PublishBreachAsync(message, cancellationToken);
+            try
+            {
+                await publisher.PublishBreachAsync(message, cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // ServiceBusSlaEventPublisher already swallows and logs, so this is defence
+                // against an implementation that does not. Without it a throwing publisher
+                // escapes to SweepAsync's catch and silently costs this pass its level-2 and
+                // auto-close phases — a notification failure taking out two unrelated rungs.
+                logger.LogError(
+                    exception,
+                    "Publishing the breach of complaint {ComplaintId} threw. The breach is "
+                    + "recorded; the notification is lost and the sweep continues.",
+                    message.ComplaintId);
+            }
         }
 
         return breached;
@@ -425,11 +455,18 @@ public class SlaSweeper(
     ///
     /// Delivery happens after the commit, never inside it (F12).
     /// </summary>
+    /// <param name="committed">
+    /// Runs after this complaint's transaction has committed, and only then. It is how the
+    /// breach phase enqueues its Service Bus message without risking one for work that rolled
+    /// back — anything that must not happen for an abandoned complaint belongs here rather
+    /// than in <paramref name="act"/>.
+    /// </param>
     private async Task<int> ForEachAsync(
         IReadOnlyList<Guid> ids,
         HashSet<Guid> examined,
         CancellationToken cancellationToken,
-        Func<Complaint, CancellationToken, Task<List<Notification>>> act)
+        Func<Complaint, CancellationToken, Task<List<Notification>>> act,
+        Action<Complaint>? committed = null)
     {
         var acted = 0;
 
@@ -460,6 +497,8 @@ public class SlaSweeper(
 
                 examined.Add(id);
                 acted++;
+
+                committed?.Invoke(complaint);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {

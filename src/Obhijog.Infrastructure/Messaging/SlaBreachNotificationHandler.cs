@@ -83,6 +83,22 @@ public class SlaBreachNotificationHandler(
             return 0;
         }
 
+        if (complaint.SlaBreachedAt is null)
+        {
+            // Defence in depth, and it is cheap. The sweeper publishes only after its
+            // transaction commits, so a published complaint is always marked — but that is a
+            // property of code that was wrong once (the enqueue used to happen inside the
+            // transaction, so a rollback still published). Defence 4 cannot catch a phantom:
+            // there is no competing row, because nothing was written. This can, and it costs
+            // one column on a row already loaded.
+            logger.LogWarning(
+                "SlaBreached message for complaint {ComplaintId}, which is not marked as "
+                + "breached. Refusing to notify; this should be unreachable.",
+                message.ComplaintId);
+
+            return 0;
+        }
+
         var recipients = await RecipientsAsync(complaint, cancellationToken);
 
         var written = recipients

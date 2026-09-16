@@ -23,12 +23,15 @@ public interface ISlaEventPublisher
     /// that is not breached — a phantom the unique index cannot catch, because there is no
     /// competing row.
     ///
-    /// The cost of that ordering is stated rather than hidden: if the process dies between
-    /// the commit and this call, the message is lost and no notification is ever written.
-    /// The breach itself is durable — the marker, the escalation row, the breach list and the
-    /// dashboard all come from the complaint — so the failure loses a notice, not a record.
-    /// Closing it properly needs a transactional outbox, which is named here as the follow-up
-    /// rather than half-built.
+    /// The cost of that ordering is stated rather than hidden: a process that dies after the
+    /// commits and before these calls loses the messages. Note the plural — publishing is
+    /// batched to the end of the phase, so the window covers every complaint committed in
+    /// that pass, up to <c>Sla:SweepBatchSize</c> of them, not one.
+    ///
+    /// The breaches themselves are durable — the marker, the escalation row, the breach list
+    /// and the dashboard all come from the complaint — so the failure loses notices, not
+    /// records. Closing it properly needs a transactional outbox, which is named here as the
+    /// follow-up rather than half-built.
     /// </summary>
     Task PublishBreachAsync(SlaBreachedMessage message, CancellationToken cancellationToken = default);
 }

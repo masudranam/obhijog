@@ -57,7 +57,7 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
-        var complaint = await OverdueAsync(world, db);
+        var complaint = await BreachedAsync(world, db);
 
         var message = new SlaBreachedMessage(complaint.Id, complaint.ReopenCount, Noon);
 
@@ -80,7 +80,7 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
-        var complaint = await OverdueAsync(world, db);
+        var complaint = await BreachedAsync(world, db);
 
         var message = new SlaBreachedMessage(complaint.Id, complaint.ReopenCount, Noon);
 
@@ -108,7 +108,7 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
-        var complaint = await OverdueAsync(world, db);
+        var complaint = await BreachedAsync(world, db);
 
         var message = new SlaBreachedMessage(complaint.Id, complaint.ReopenCount, Noon);
 
@@ -132,7 +132,7 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
-        var complaint = await OverdueAsync(world, db);
+        var complaint = await BreachedAsync(world, db);
 
         await Handler(world, db).HandleAsync(
             new SlaBreachedMessage(complaint.Id, 0, Noon));
@@ -159,7 +159,7 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
-        var complaint = await OverdueAsync(world, db);
+        var complaint = await BreachedAsync(world, db);
 
         await SetReopenCountAsync(db, complaint.Id, 2);
 
@@ -194,7 +194,7 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
-        var complaint = await OverdueAsync(world, db);
+        var complaint = await BreachedAsync(world, db);
 
         await ReassignAsync(db, complaint.Id, world.OtherStaffId);
 
@@ -222,7 +222,7 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
-        var complaint = await OverdueAsync(world, db);
+        var complaint = await BreachedAsync(world, db);
 
         await Handler(world, db).HandleAsync(
             new SlaBreachedMessage(complaint.Id, complaint.ReopenCount, Noon));
@@ -321,17 +321,31 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
     }
 
     /// <summary>
-    /// A sweep whose publish fails must still leave the breach recorded. The notice is lost —
-    /// that gap is named in <see cref="ISlaEventPublisher.PublishBreachAsync"/> rather than
-    /// hidden — but the breach list, the dashboard and the escalation history all read from
-    /// the complaint, so the durable half survives.
+    /// A sweep whose publish fails must still leave the breach recorded, <b>and must finish
+    /// the pass</b>.
+    ///
+    /// The second half is the part worth testing. The publish loop runs after the breach
+    /// phase's per-complaint transactions, outside their try — so an exception escaping it
+    /// reaches <c>SweepAsync</c>'s catch and silently costs the pass its level-2 and
+    /// auto-close phases. A notification failure would take out two unrelated rungs. The real
+    /// <c>ServiceBusSlaEventPublisher</c> swallows and logs, so the sweeper's own guard is
+    /// what this pins, and <see cref="ThrowingPublisher"/> is the implementation that ignores
+    /// the contract.
     /// </summary>
     [RequiresPostgresFact]
-    public async Task AFailedPublishStillLeavesTheBreachRecorded()
+    public async Task AFailedPublishLeavesTheBreachRecordedAndDoesNotAbortThePass()
     {
         await using var db = postgres.CreateContext();
         var world = await SlaSweeperTests.World.CreateAsync(db);
         var complaint = await OverdueAsync(world, db);
+
+        // Auto-close runs after the breach phase, so it only happens if the throwing publisher
+        // did not take the pass down with it.
+        var stale = await world.ComplaintAsync(
+            db,
+            elapsedPercent: 50,
+            status: ComplaintStatus.Resolved,
+            resolvedAt: SlaSweeperTests.Noon.AddDays(-8));
 
         await world.Sweeper(db, publisher: new ThrowingPublisher()).SweepAsync();
 
@@ -339,7 +353,123 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
 
         Assert.NotNull(swept.SlaBreachedAt);
         Assert.Equal(1, swept.EscalationLevel);
+
+        var closed = await db.Complaints.AsNoTracking().SingleAsync(c => c.Id == stale.Id);
+
+        Assert.Equal(ComplaintStatus.Closed, closed.Status);
     }
+
+    /// <summary>
+    /// <b>A breach whose transaction rolls back must publish nothing.</b>
+    ///
+    /// This test exists because the code was wrong. The first version enqueued the message
+    /// inside <c>act</c>, which runs before <c>SaveChanges</c> and <c>Commit</c>, so a
+    /// complaint whose transaction failed was skipped by the sweeper *and published anyway*.
+    /// The handler would then write breach notifications for a complaint that is not
+    /// breached — and defence 4 cannot catch that one, because nothing competing was written.
+    /// It is the exact phantom F16 and <see cref="ISlaEventPublisher.PublishBreachAsync"/>
+    /// claim the post-commit ordering makes impossible, and the claim was false.
+    ///
+    /// The rollback is forced with a sender that has nothing to do with it: a
+    /// <c>DbUpdateException</c> raised on save. What matters is only that the transaction
+    /// fails after <c>act</c> has run, which is the shape of an xmin conflict too.
+    /// </summary>
+    [RequiresPostgresFact]
+    public async Task ABreachWhoseTransactionRollsBackIsNeverPublished()
+    {
+        await using var db = postgres.CreateContext();
+        var world = await SlaSweeperTests.World.CreateAsync(db);
+        var complaint = await OverdueAsync(world, db);
+
+        var publisher = new RecordingPublisher { WritesInline = false };
+
+        // Force *this* complaint's breach transaction to fail, using §11.3 defence 3 rather
+        // than a contrivance: an EscalationEvent already occupying (ComplaintId, ReopenCount,
+        // Level 1) is exactly what an overlapping sweep leaves behind, and the sweeper's own
+        // insert then loses to the unique index and rolls the transaction back.
+        //
+        // An earlier draft forced the failure with a duplicate-key Complaint left pending on
+        // the change tracker. That was wrong and intermittently useless: a pending entity
+        // attaches to whichever transaction saves first, so another suite's complaint in the
+        // shared database would absorb the failure, clear the tracker, and let this
+        // complaint's breach succeed — the test then passed while the bug was present.
+        db.EscalationEvents.Add(new EscalationEvent
+        {
+            Id = Guid.CreateVersion7(),
+            ComplaintId = complaint.Id,
+            ReopenCount = complaint.ReopenCount,
+            Level = 1,
+            RaisedAt = Noon,
+            Reason = "Planted so the sweeper's own escalation insert loses to defence 3.",
+        });
+
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        await world.Sweeper(db, publisher: publisher).SweepAsync();
+
+        Assert.DoesNotContain(publisher.Published, m => m.ComplaintId == complaint.Id);
+
+        // And the breach really did not happen, so there was nothing to announce.
+        var swept = await db.Complaints.AsNoTracking().SingleAsync(c => c.Id == complaint.Id);
+        Assert.Null(swept.SlaBreachedAt);
+    }
+
+    /// <summary>
+    /// Defence 4's filter, pinned from both sides.
+    ///
+    /// The index is partial over the three SLA types, and nothing else in the suite would
+    /// notice if someone "simplified" it to a blanket unique index — that change breaks no
+    /// other test, and then produces a 500 on the second reassignment back to a staff member
+    /// who already holds one. `ComplaintAssigned` legitimately recurs for the same recipient
+    /// inside one reopen cycle; the SLA rungs do not.
+    /// </summary>
+    [RequiresPostgresFact]
+    public async Task TheUniqueIndexConstrainsSlaNotificationsAndNothingElse()
+    {
+        await using var db = postgres.CreateContext();
+        var world = await SlaSweeperTests.World.CreateAsync(db);
+        var complaint = await BreachedAsync(world, db);
+
+        // A → B → A: two ComplaintAssigned rows for one recipient in one cycle, both legal.
+        db.Notifications.Add(Row(complaint.Id, world.StaffId, NotificationType.ComplaintAssigned));
+        await db.SaveChangesAsync();
+        db.Notifications.Add(Row(complaint.Id, world.StaffId, NotificationType.ComplaintAssigned));
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        Assert.Equal(
+            2,
+            await db.Notifications.CountAsync(n =>
+                n.ComplaintId == complaint.Id
+                && n.RecipientId == world.StaffId
+                && n.Type == NotificationType.ComplaintAssigned));
+
+        // The same shape on an SLA type is refused.
+        db.Notifications.Add(Row(complaint.Id, world.StaffId, NotificationType.SlaBreached));
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        db.Notifications.Add(Row(complaint.Id, world.StaffId, NotificationType.SlaBreached));
+
+        var exception = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+
+        Assert.Equal("23505", (exception.InnerException as Npgsql.PostgresException)?.SqlState);
+        db.ChangeTracker.Clear();
+    }
+
+    private static Notification Row(Guid complaintId, Guid recipientId, NotificationType type) =>
+        new()
+        {
+            Id = Guid.CreateVersion7(),
+            RecipientId = recipientId,
+            ComplaintId = complaintId,
+            ReopenCount = 0,
+            Type = type,
+            Subject = "s",
+            Body = "b",
+            CreatedAt = Noon,
+        };
 
     // --- doubles --------------------------------------------------------------------------------
 
@@ -384,9 +514,45 @@ public class SlaTransportTests(PostgresFixture postgres) : IClassFixture<Postgre
         ObhijogDbContext db) =>
         new(db, world.Dispatcher(db), NullLogger<SlaBreachNotificationHandler>.Instance);
 
-    /// <summary>Past due and assigned: what the breach rung selects, and what a message describes.</summary>
+    /// <summary>
+    /// Past due, assigned, and <b>not yet marked</b>: what the breach rung selects. Only the
+    /// tests that actually run a sweep use this, and each of them sweeps it in the same test,
+    /// so it does not survive as unfinished work.
+    /// </summary>
     private static Task<Complaint> OverdueAsync(SlaSweeperTests.World world, ObhijogDbContext db) =>
         world.ComplaintAsync(db, elapsedPercent: 120, assigned: true);
+
+    /// <summary>
+    /// A complaint in the state a published message actually describes: the sweeper has
+    /// already written <c>SlaWarnedAt</c>, <c>SlaBreachedAt</c> and level 1 and committed
+    /// them, and only then published. The handler never sees an unmarked complaint.
+    ///
+    /// <b>This started as a bug in this fixture, and the bug was real rather than cosmetic.</b>
+    /// The handler tests used an unmarked overdue complaint, which left one sitting in the
+    /// shared database that the sweep suite's next pass duly warned and breached — turning
+    /// <c>BothMarkersLandInOnePassWhenAComplaintCrossedBoth</c> red on its pass counters. That
+    /// is issue #50 exactly: suites share one database, so a fixture is not private to the
+    /// suite that wrote it. Marking the complaint fixes the interference and is the more
+    /// faithful fixture, which is the only reason it is the right fix rather than a dodge —
+    /// a complaint the sweeper has finished with is inert to every later pass.
+    /// </summary>
+    private static async Task<Complaint> BreachedAsync(
+        SlaSweeperTests.World world,
+        ObhijogDbContext db)
+    {
+        var complaint = await world.ComplaintAsync(db, elapsedPercent: 120, assigned: true);
+
+        await db.Complaints
+            .Where(c => c.Id == complaint.Id)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(c => c.SlaWarnedAt, SlaSweeperTests.Noon)
+                .SetProperty(c => c.SlaBreachedAt, SlaSweeperTests.Noon)
+                .SetProperty(c => c.EscalationLevel, (short)1));
+
+        db.ChangeTracker.Clear();
+
+        return complaint;
+    }
 
     private static async Task<int> BreachNotificationsAsync(ObhijogDbContext db, Guid complaintId) =>
         await db.Notifications

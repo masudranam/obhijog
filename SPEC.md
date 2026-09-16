@@ -1078,12 +1078,19 @@ that delivers it is in the heading; §20 is the live tracker.
   between publish and delivery notifies whoever holds the complaint now. It drops a message whose
   `ReopenCount` no longer matches the complaint: that breach belongs to a cycle whose clock has
   already been reset (§11.4).
-- Publishing happens **after** the sweeper's per-complaint transaction commits, never inside it — a
-  message emitted by a transaction that then rolled back would have the handler write notifications
-  for a breach that never happened, which defence 4 cannot catch because there is no competing row.
-  The cost is stated rather than hidden: a process that dies between the commit and the publish
-  loses the notice. The breach itself is durable, so what is lost is a notification and not a
-  record. A transactional outbox would close it and is the named follow-up.
+- The message is enqueued **only once the sweeper's per-complaint transaction has committed**, and
+  published after the phase. A message enqueued inside the transaction would survive a rollback and
+  have the handler write notifications for a breach that never happened — a phantom defence 4
+  cannot catch, because nothing competing was written. The handler additionally refuses a message
+  whose complaint has no `SlaBreachedAt`, as defence in depth.
+- The cost is stated rather than hidden: a process that dies after the commits and before the
+  publishes loses those messages — *plural*, because publishing is batched to the end of the phase,
+  so the window covers every complaint committed in that pass, up to `Sla:SweepBatchSize`. The
+  breaches are durable, so what is lost is notices and not records. A transactional outbox would
+  close it and is the named follow-up.
+- A publisher that throws must not abort the pass. The sweeper catches around each publish, because
+  a notification failure taking out the level-2 and auto-close rungs behind it would be a far worse
+  outcome than a lost notice.
 - `Sla:Transport = InProcess` remains the default and must keep working.
 - Only the **breach** rung moves. Warn and level 2 keep writing inline; the message type is named
   for one rung and F16 names one rung. Defence 4's index covers all three types, so moving the
