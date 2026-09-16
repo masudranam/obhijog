@@ -66,8 +66,7 @@ What is verified is what CI can verify: the `infra gate` job runs `az bicep buil
 `build-params` and `lint` (with `infra/bicepconfig.json` raising the secret-related rules to
 `error`) and builds the API image on every SHA. **`az deployment group what-if` has not been run
 — it needs a subscription this project does not have.** Do not describe M9 as deployed, or the
-template as known-good; it is known to compile. M10's Service Bus escalation is the stretch that
-remains.
+template as known-good; it is known to compile.
 
 **Breach delivery can leave the process.** `Sla:Transport = ServiceBus` makes the sweeper publish
 an `SlaBreached` message instead of writing the breach notifications inline; `Obhijog.Functions`

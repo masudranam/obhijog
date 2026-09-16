@@ -1222,7 +1222,7 @@ eighth suite needs a reason in its description.
 | State machine | `tests/Obhijog.Tests/ComplaintStateMachineTests.cs` | all twelve rows of §12.3 allowed; a sample of absent pairs rejected; role and assignee-only guards; required-payload validation |
 | SLA arithmetic | `tests/Obhijog.Tests/SlaPolicyTests.cs` | `DueAt`, `AtPercent`, `WarnAt`, `Level2At`, `ElapsedPercent`, driven by a fake `TimeProvider`. Pure, so no database |
 | Sweep idempotency | `tests/Obhijog.Tests/SlaSweeperTests.cs` | the ladder; **two sweeps → one escalation per level**; both markers in one pass; level 2 never re-selected; resolved never selected; auto-close at 7 days; the unique index refusing a duplicate and the sweep surviving it; the §11.4 clock effects — the recategorize recompute and the reopen reset |
-| Role scoping | `tests/Obhijog.Tests/ComplaintScopeTests.cs` | a Citizen cannot read another citizen's complaint (**404**, not 403); Staff cannot read another department's; Staff cannot act on a colleague's assignment (**403**); internal comments absent from a Citizen's query |
+| Role scoping | `tests/Obhijog.Tests/ComplaintScopeTests.cs` | the claims reader and the named policies; the seam over `IQueryable` — a Citizen sees only their own, Staff only their own department, a `departmentId` parameter narrowing but never widening; internal comments absent from a Citizen's query; and **§9.2's translation against a real PostgreSQL** — each of the nine scoped service entry points answers an out-of-scope id with `NotFoundException` for each of the three out-of-scope callers, carrying the same message a nonexistent id gets, and `ProblemDetailsExceptionHandler` mapping `NotFoundException` → **404** and `ForbiddenException` → **403** |
 | Dashboard & export | `tests/Obhijog.Tests/DashboardAndExportTests.cs` | every F13 figure against a hand-counted fixture; a Citizen's scope; the export returning exactly what the list returns; **CSV injection — a title beginning with `=`, `+`, `-` or `@`** |
 | SLA transport | `tests/Obhijog.Tests/SlaTransportTests.cs` | F16: a redelivered `SlaBreached` message writes **one** set of notifications and does not throw; ten deliveries equal one; a later reopen cycle is not suppressed and a finished one is dropped; recipients resolved at delivery, not publication; `InProcess` unchanged and publishing nothing; `ServiceBus` publishing while still writing the marker and the escalation row |
 | Token rotation | `tests/Obhijog.Tests/RefreshTokenRotationTests.cs` | rotation revokes the presented token; **reuse of a revoked token revokes the whole family**; an unknown token revokes nothing; expiry; logout revokes one device; a deactivated account cannot refresh; the claims a token carries, validated through the API's own parameters |
@@ -1255,6 +1255,17 @@ eighth suite needs a reason in its description.
   lives there: both are applied by `ComplaintTransitionService` against the database and the real
   guard table. Testing them as pure arithmetic would test a copy of the production code rather than
   the production code, so they sit with the sweep, where a real PostgreSQL is already in play.
+- **§9.2's translation is tested, and was not before #38.** The seam has always been well covered;
+  the step after it — "the scoped query returned nothing" becoming a `NotFoundException` and a
+  `404` — rested on a manual probe and on nothing else. The pr-reviewer on M6 showed the gap by
+  replacing every `throw new NotFoundException` in the services with `ForbiddenException` and
+  watching all 85 tests stay green. The cases are a cross product rather than three examples,
+  because the invariant is about the *set* of entry points, not about three of them.
+  `ScopedEntryPoints` is a hand-maintained list and does not enforce itself — a tenth scoped method
+  added without a row there fails nothing. It is a checklist a reviewer can diff against the
+  services in one pass, and making it enforceable would take a reflection test over every public
+  method taking a `complaintId`. This is not an eighth suite — role scoping is where these belong, and that suite gained
+  a `PostgresFixture` to hold them, having been entirely in-memory until now.
 - **Frontend: zero tests.** `ng build` is the gate. This is decision D6, not an omission.
 - No test spins up Azurite; `IAttachmentStore` is doubled.
 
