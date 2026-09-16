@@ -1011,9 +1011,15 @@ that delivers it is in the heading; §20 is the live tracker.
   possible and is the better end state, but it needs a token-refreshing connection provider — it is
   named here as the follow-up rather than half-built (see D10).
 - `Dockerfile` for the API: multi-stage, non-root, builds.
+- `web/public/staticwebapp.config.json`: `navigationFallback` to `/index.html`. Static Web Apps
+  does no SPA fallback without it, so every Angular deep link 404s on refresh — it ships in
+  `public/`, which the build copies to the root of the folder the deploy workflow uploads.
 - `.github/workflows/deploy.yml` is **`workflow_dispatch` only** — it never fires on push.
-- Acceptance: the template compiles and lints clean, and the compiled ARM contains no `0.0.0.0`
-  and no `firewallRules` — all four checked by the CI `infra gate` on every commit.
+- Acceptance: the template compiles (`az bicep build`), the parameter file compiles against it
+  (`az bicep build-params`), it lints clean (`az bicep lint`), the API image builds, and the
+  compiled ARM contains none of `0.0.0.0`, `firewallRules`, `deploymentScripts` or `templateLink`
+  — the last two because they are the ways to open the database from somewhere this gate cannot
+  read. All of it runs in the CI `infra gate` on every commit.
   `az deployment group what-if` reporting no errors is the acceptance criterion for an
   environment that has a subscription behind it; see the note below. Actually deploying is
   optional.

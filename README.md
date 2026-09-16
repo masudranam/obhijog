@@ -80,7 +80,9 @@ VNet-injected, so it has no public endpoint and Azure will not accept a firewall
 Bicep, however, will happily compile one — so CI greps the compiled template for `0.0.0.0` and for
 `firewallRules` on every commit and fails on either. No secret is a literal anywhere: three `@secure()` parameters arrive from the environment, land
 in Key Vault, and come back as Key Vault references, and none of them is ever a deployment output.
-`.github/workflows/deploy.yml` is dispatch-only and previews with `what-if` before it applies.
+`.github/workflows/deploy.yml` is dispatch-only and previews with `what-if` before it applies, and
+`web/public/staticwebapp.config.json` gives the Angular app the SPA fallback without which every
+deep link would 404 on refresh.
 
 **It has not been deployed.** `what-if` needs an authenticated subscription, which this project
 does not have. What CI verifies on every SHA is that the template compiles and lints clean, that

@@ -195,6 +195,17 @@ jobs:
       - name: no public database firewall rule
         run: |
           set -uo pipefail
+
+          # Without this the step fails *open*: four greps against a missing file print
+          # "No such file or directory", leave status at 0, and the gate reports clean
+          # having read nothing. The compile step above would fail the job first, so this
+          # is not reachable today — but "not reachable today" is not a property a gate
+          # should rely on, and this repository already says so about its own hooks.
+          [ -s "$RUNNER_TEMP/main.json" ] || {
+            echo "::error::No compiled template to check. The compile step should have failed before this one."
+            exit 1
+          }
+
           status=0
           fail() {
             grep -ni "$1" "$RUNNER_TEMP/main.json" && {
