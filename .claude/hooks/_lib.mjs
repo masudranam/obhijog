@@ -171,13 +171,16 @@ export function segments(command) {
  *     an `if`, which review found before this shipped.
  *   · environment assignments, and wrappers like `sudo`, `env`, `command`, `nohup`,
  *     `time`, `timeout 30`.
- *   · an absolute or relative path — `/usr/bin/git`.
+ *   · a path, POSIX or Windows — `/usr/bin/git`, `C:/tools/git/bin/git.exe`. The
+ *     drive letter was missed at first, on the platform this project runs on.
  *
- * **The narrowing this accepts:** `xargs git push --force` is still not seen, because
- * the command word is `xargs` and what follows is data to it rather than a command
- * here. That is deliberate. These guards exist so a rule the agent was told once
- * still holds on the four hundredth command — not to withstand an agent deliberately
- * routing around them, which nothing here could do anyway.
+ * **The narrowing this accepts:** a prefix that is not on these lists hides the
+ * command — `xargs git push --force`, and equally `stdbuf`, `nice`, `setsid`,
+ * `doas`, `case x in y) git … ;;`, or `timeout --preserve-status 30`. An allow-list
+ * of prefixes always has a next entry; this is the shape of the tradeoff, not a set
+ * of bugs to close one at a time. These guards exist so a rule the agent was told
+ * once still holds on the four hundredth command — not to withstand an agent
+ * deliberately routing around them, which nothing here could do anyway.
  */
 // Punctuation needs no space after it — `(git push` — where a keyword does, or `dogit`
 // would read as `do git`.
@@ -189,7 +192,7 @@ export function argvFor(segment, program) {
     String.raw`^(?:\s*${CONTROL})*` +
       String.raw`(?:[A-Za-z_]\w*=\S*\s+)*` +
       String.raw`(?:${WRAPPER}\s+(?:-\S+\s+)*)*` +
-      String.raw`(?:[\w.\-]*[/\\])*${program}(?:\.exe)?\b`,
+      String.raw`(?:[A-Za-z]:)?(?:[\w.\-]*[/\\])*${program}(?:\.exe)?\b`,
     'i',
   );
 

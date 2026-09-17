@@ -257,6 +257,13 @@ const feature = repo({ branch: 'feat/1-thing', withOrigin: true });
   const r = run('gh api repos/o/r/merges --method POST', feature);
   check('gh api merges is not the pr merge gate', r.code, ALLOW, r.stderr);
 }
+{
+  // Isolates the `pr` half of the gate's condition, which nothing else does — the
+  // case above cannot, because its token is `repos/o/r/merges` rather than `merge`,
+  // so a relaxed `argv.includes('merge')` would not match it either.
+  const r = run("gh alias set merge 'pr merge --squash'", feature);
+  check('a gh subcommand named merge is not the pr merge gate', r.code, ALLOW, r.stderr);
+}
 
 // 3d · control words and wrappers do not hide a command (#16 review)
 //
@@ -283,6 +290,23 @@ const feature = repo({ branch: 'feat/1-thing', withOrigin: true });
 {
   const r = run('/usr/bin/git push --force origin main', feature);
   check('an absolute path to git does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  // The drive letter was missed on the first pass, which made this the one residual
+  // narrowing that mattered: Windows is the platform this project runs on.
+  const r = run('C:/tools/git/bin/git.exe push --force origin main', feature);
+  check('a Windows path to git does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('sudo git push --force origin main', feature);
+  check('sudo does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  // The WRAPPER group had no coverage at all — review found it could be made
+  // unmatchable with the suite still green, which is the dangerous direction: a
+  // regression there silently allows `sudo git push --force`.
+  const r = run('timeout 30 git push --force origin main', feature);
+  check('a timeout wrapper does not hide a force push', r.code, BLOCK, r.stderr);
 }
 {
   const r = run('(git push --force origin main)', feature);
