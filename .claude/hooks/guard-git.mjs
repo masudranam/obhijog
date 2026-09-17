@@ -9,8 +9,18 @@
  *   1. committing while on main/master — every change arrives by PR (SPEC §21.2)
  *   2. force pushes, and deletion of main
  *   3. skipping hooks with --no-verify
- *   4. editing or deleting a committed EF migration (SPEC §16.4, forward-only)
- *   5. `gh pr merge` unless a PASS verdict is recorded for the CURRENT head SHA
+ *   4. `git reset --hard` — the one operation here that destroys work outright
+ *   5. editing or deleting a committed EF migration (SPEC §16.4, forward-only)
+ *   6. `gh pr merge` unless a PASS verdict is recorded for the CURRENT head SHA
+ *
+ * Deliberately NOT blocked, so the next reader does not assume otherwise:
+ *   · `git rebase -i` — named in the same breath as the above in the user's own
+ *     rules, but its failure here is a hang rather than data loss (this environment
+ *     has no interactive editor). Tracked separately.
+ *   · `git push origin :branch`, the colon refspec form of a delete.
+ *   · `git clean -fd`, which destroys untracked files.
+ *
+ * Every rule matches only where `git` or `gh` is the command word — see `argvFor`.
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -19,6 +29,8 @@ import {
   commandOf,
   readPayload,
   readJsonIfExists,
+  argvFor,
+  hasShortFlag,
   segments,
   statePath,
 } from './_lib.mjs';
@@ -60,7 +72,8 @@ function git(args) {
 const PROTECTED = new Set(['main', 'master']);
 
 for (const part of parts) {
-  if (!/\bgit\b[\s\S]*\bcommit\b/.test(part)) continue;
+  const argv = argvFor(part, 'git');
+  if (!argv?.includes('commit')) continue;
 
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
   if (!PROTECTED.has(branch)) continue;
@@ -83,10 +96,12 @@ for (const part of parts) {
 // ---------------------------------------------------------------- 2 · destructive git
 
 for (const part of parts) {
-  if (
-    /\bgit\b[\s\S]*\bpush\b/.test(part) &&
-    /(--force(?!-with-lease)|(?:^|\s)-f(?:\s|$))/.test(part)
-  ) {
+  const argv = argvFor(part, 'git');
+  if (!argv) continue;
+
+  const namesProtected = argv.some((a) => PROTECTED.has(a));
+
+  if (argv.includes('push') && (argv.includes('--force') || hasShortFlag(argv, 'f'))) {
     block(
       `BLOCKED: force push.\n\n` +
         `Force pushing rewrites published history and can destroy a branch another\n` +
@@ -95,18 +110,41 @@ for (const part of parts) {
     );
   }
 
-  if (/\bgit\b[\s\S]*\bpush\b[\s\S]*--delete[\s\S]*\b(main|master)\b/.test(part)) {
+  if (argv.includes('push') && argv.includes('--delete') && namesProtected) {
     block('BLOCKED: deleting the main branch on the remote.');
   }
 
-  if (/\bgit\b[\s\S]*\bbranch\b[\s\S]*-D[\s\S]*\b(main|master)\b/.test(part)) {
+  if (argv.includes('branch') && argv.includes('-D') && namesProtected) {
     block('BLOCKED: deleting the local main branch.');
   }
 
-  if (/\bgit\b[\s\S]*(--no-verify|--no-gpg-sign)\b/.test(part)) {
+  if (argv.includes('--no-verify') || argv.includes('--no-gpg-sign')) {
     block(
       `BLOCKED: skipping git hooks.\n\n` +
         `If a hook is failing, that is information — fix the cause. SPEC.md §21.10.`,
+    );
+  }
+
+  // `reset --hard` is the only command reached for routinely that throws work away
+  // with no way back: uncommitted changes are gone, not stashed, and no reflog entry
+  // brings them back. The three rules above are all about published history, which
+  // is recoverable; this one is not. It cost this very PR a working tree once.
+  //
+  // Blocked unconditionally rather than only on a dirty tree. A guard whose answer
+  // depends on mutable state is one the agent cannot predict and a reader cannot
+  // reason about, and the dirty-tree test would miss the other half of what a hard
+  // reset discards — the commits it moves the branch off.
+  if (argv.includes('reset') && argv.includes('--hard')) {
+    block(
+      `BLOCKED: git reset --hard.\n\n` +
+        `This discards every uncommitted change in the working tree with no way back —\n` +
+        `no stash, no reflog entry, nothing to recover from. Depending on what you meant:\n\n` +
+        `  git restore <path>          discard one file's changes\n` +
+        `  git stash                   set everything aside, recoverably\n` +
+        `  git reset --keep <commit>   move the branch, keep local modifications\n` +
+        `  git reset --soft <commit>   move the branch, keep everything staged\n\n` +
+        `If a hard reset is genuinely what is wanted, say so and ask — that is the one\n` +
+        `thing this guard is here to make you do.`,
     );
   }
 }
@@ -136,7 +174,8 @@ for (const part of parts) {
 // ---------------------------------------------------------------- 4 · the merge gate
 
 for (const part of parts) {
-  if (!/\bgh\b[\s\S]*\bpr\b[\s\S]*\bmerge\b/.test(part)) continue;
+  const argv = argvFor(part, 'gh');
+  if (!argv?.includes('pr') || !argv.includes('merge')) continue;
 
   // Require an explicit PR number. Without one we cannot tell which verdict to check,
   // and a gate that guesses is not a gate.

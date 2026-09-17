@@ -1395,7 +1395,11 @@ other. M9 needs M8; M10 needs M7. M9 and M10 are independent of each other.
 8. **Record unknowns, don't guess.** Add a row to §23 or open an issue. Decisions that are costly to
    reverse get an ADR in `docs/adr/`.
 9. **Commit only when asked**, with a Conventional Commit subject.
-10. **Never force-push, never `--no-verify`, never edit a committed migration.**
+10. **Never force-push, never `--no-verify`, never `git reset --hard`, never edit a committed
+    migration.** `guard-git.mjs` enforces all four. The hard reset is the one whose damage cannot
+    be undone — no stash, no reflog — so if it is genuinely wanted, ask rather than route around
+    the guard. `git rebase -i`, `git clean -fd` and the `:branch` refspec delete are **not**
+    guarded; the hook header says so rather than leaving the next reader to assume.
 
 ---
 

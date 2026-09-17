@@ -160,8 +160,82 @@ const feature = repo({ branch: 'feat/1-thing', withOrigin: true });
   check('deleting remote main is blocked', r.code, BLOCK, r.stderr);
 }
 {
+  const r = run('git push -fu origin feat/1-thing', feature);
+  check('force bundled into a short-flag group is blocked', r.code, BLOCK, r.stderr);
+}
+{
   const r = run('git commit -m "remember: never use --force here"', feature);
   check('a quoted mention of --force is not mistaken for one', r.code, ALLOW, r.stderr);
+}
+
+// 3b · reset --hard (#16)
+//
+// The one destructive operation whose damage is unrecoverable: no stash, no reflog.
+// Blocked unconditionally, which is why the --soft and --mixed cases below matter —
+// without them a guard that simply blocked every `git reset` would pass just as well.
+{
+  const r = run('git reset --hard', feature);
+  check('git reset --hard is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git reset --hard HEAD~3', feature);
+  check('git reset --hard to a commit is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git fetch origin && git reset --hard origin/main', feature);
+  check('git reset --hard later in a chain is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git reset --soft HEAD~1', feature);
+  check('git reset --soft is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('git reset HEAD -- f.txt', feature);
+  check('a mixed reset of one path is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('git restore f.txt', feature);
+  check('git restore, the recommended alternative, is allowed', r.code, ALLOW, r.stderr);
+}
+
+// 3c · prose about the guard is not an invocation of it (#16, second finding)
+//
+// Filing #16 was itself blocked: its body described the hook-skipping flag, and the
+// guard matched the word "git" anywhere followed by the flag anywhere. Two fixes —
+// heredoc bodies are data, and a rule only fires where git is the command word.
+{
+  // The body line begins with `git`, which is what makes this a heredoc test rather
+  // than an argvFor test. A line starting with prose is already safe because git is
+  // not its command word; a fenced code block inside an issue body is not, and that
+  // is the shape that actually got blocked. An earlier version of this case used
+  // prose and passed with heredoc stripping removed entirely — mutation caught it.
+  const r = run(
+    ['gh issue create --body-file - <<EOF', 'git commit --no-verify', 'EOF'].join('\n'),
+    feature,
+  );
+  check('a heredoc body quoting a blocked command is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run(
+    ['git commit -F - <<MSG', 'harness: stop allowing git push --force', 'MSG'].join('\n'),
+    feature,
+  );
+  check('a commit message mentioning a blocked command is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run(
+    ['bash <<EOF', 'git push --force origin main', 'EOF'].join('\n'),
+    feature,
+  );
+  check('a heredoc feeding a shell is NOT treated as data', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('echo the guard blocks git commands using --no-verify', feature);
+  check('a sentence mentioning git and a flag is not an invocation', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('gh pr comment 5 --body-file notes.md', feature);
+  check('gh pr comment is not the merge gate', r.code, ALLOW, r.stderr);
 }
 
 // 4 · migrations are forward-only
