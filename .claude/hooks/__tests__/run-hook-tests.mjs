@@ -160,8 +160,190 @@ const feature = repo({ branch: 'feat/1-thing', withOrigin: true });
   check('deleting remote main is blocked', r.code, BLOCK, r.stderr);
 }
 {
+  const r = run('git push -fu origin feat/1-thing', feature);
+  check('force bundled into a short-flag group is blocked', r.code, BLOCK, r.stderr);
+}
+{
   const r = run('git commit -m "remember: never use --force here"', feature);
   check('a quoted mention of --force is not mistaken for one', r.code, ALLOW, r.stderr);
+}
+
+// 3b · reset --hard (#16)
+//
+// The one destructive operation whose damage is unrecoverable: no stash, no reflog.
+// Blocked unconditionally, which is why the --soft and --mixed cases below matter —
+// without them a guard that simply blocked every `git reset` would pass just as well.
+{
+  const r = run('git reset --hard', feature);
+  check('git reset --hard is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git reset --hard HEAD~3', feature);
+  check('git reset --hard to a commit is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git fetch origin && git reset --hard origin/main', feature);
+  check('git reset --hard later in a chain is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git reset --soft HEAD~1', feature);
+  check('git reset --soft is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('git reset HEAD -- f.txt', feature);
+  check('a mixed reset of one path is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('git restore f.txt', feature);
+  check('git restore, the recommended alternative, is allowed', r.code, ALLOW, r.stderr);
+}
+
+// 3c · prose about the guard is not an invocation of it (#16, second finding)
+//
+// Filing #16 was itself blocked: its body described the hook-skipping flag, and the
+// guard matched the word "git" anywhere followed by the flag anywhere. Two fixes —
+// heredoc bodies are data, and a rule only fires where git is the command word.
+{
+  // The body line begins with `git`, which is what makes this a heredoc test rather
+  // than an argvFor test. A line starting with prose is already safe because git is
+  // not its command word; a fenced code block inside an issue body is not, and that
+  // is the shape that actually got blocked. An earlier version of this case used
+  // prose and passed with heredoc stripping removed entirely — mutation caught it.
+  const r = run(
+    ['gh issue create --body-file - <<EOF', 'git commit --no-verify', 'EOF'].join('\n'),
+    feature,
+  );
+  check('a heredoc body quoting a blocked command is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  // Also begins with `git`, for the same reason as above. An earlier version of this
+  // case started with prose, which made it a second argvFor test wearing a heredoc
+  // label — review found it surviving the removal of heredoc stripping.
+  const r = run(
+    ['git commit -F - <<MSG', 'git push --force is what this stops', 'MSG'].join('\n'),
+    feature,
+  );
+  check('a commit message quoting a blocked command is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  // A herestring is one line of data with no terminator. Matching it as a heredoc
+  // opener ran the scan off the end and deleted every line after it, which switched
+  // the guards off for the rest of the command.
+  const r = run(['grep needle <<< "haystack"', 'git push --force origin main'].join('\n'), feature);
+  check('a herestring does not swallow the lines after it', r.code, BLOCK, r.stderr);
+}
+{
+  // Contrived on purpose, and it is the only shape that separates the two fixes.
+  // The case above is caught by the unterminated-delimiter guard whichever way `<<<`
+  // is matched — mutation showed it green with the `<<<` exclusion reverted. Here the
+  // herestring's word DOES appear as a later line, so a `<<<` read as a heredoc opener
+  // finds a terminator, swallows the force push between them, and allows it.
+  const r = run(
+    ['grep needle <<< "EOF"', 'git push --force origin main', 'EOF'].join('\n'),
+    feature,
+  );
+  check('a herestring is not a heredoc opener', r.code, BLOCK, r.stderr);
+}
+{
+  // Same failure by a different route: a delimiter that never appears again.
+  const r = run(['cat <<EOF > notes.md', 'a note', 'git reset --hard'].join('\n'), feature);
+  check('an unterminated heredoc does not swallow the lines after it', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('echo gh pr merge 99 needs a PASS verdict first', feature);
+  check('a sentence naming the merge gate does not trip it', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('gh api repos/o/r/merges --method POST', feature);
+  check('gh api merges is not the pr merge gate', r.code, ALLOW, r.stderr);
+}
+{
+  // Isolates the `pr` half of the gate's condition, which nothing else does — the
+  // case above cannot, because its token is `repos/o/r/merges` rather than `merge`,
+  // so a relaxed `argv.includes('merge')` would not match it either.
+  const r = run("gh alias set merge 'pr merge --squash'", feature);
+  check('a gh subcommand named merge is not the pr merge gate', r.code, ALLOW, r.stderr);
+}
+
+// 3d · control words and wrappers do not hide a command (#16 review)
+//
+// `segments` splits on `;`, so the body of an if or a for arrives as its own segment
+// beginning with `then` or `do`. Anchoring argvFor to the command word without
+// stepping over those made every rule here bypassable by wrapping it in a loop — the
+// merge gate included, which is the whole review workflow.
+{
+  const r = run('if true; then gh pr merge 99 --squash; fi', feature);
+  check('the merge gate is not bypassed by a then-clause', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('if git diff --quiet; then git push --force origin main; fi', feature);
+  check('a force push in a then-clause is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('for r in a b; do git push --force origin $r; done', feature);
+  check('a force push in a do-clause is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('DOTNET_ROLL_FORWARD=Major git push --force origin main', feature);
+  check('an env assignment does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('/usr/bin/git push --force origin main', feature);
+  check('an absolute path to git does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  // The drive letter was missed on the first pass, which made this the one residual
+  // narrowing that mattered: Windows is the platform this project runs on.
+  const r = run('C:/tools/git/bin/git.exe push --force origin main', feature);
+  check('a Windows path to git does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('sudo git push --force origin main', feature);
+  check('sudo does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  // The WRAPPER group had no coverage at all — review found it could be made
+  // unmatchable with the suite still green, which is the dangerous direction: a
+  // regression there silently allows `sudo git push --force`.
+  const r = run('timeout 30 git push --force origin main', feature);
+  check('a timeout wrapper does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('(git push --force origin main)', feature);
+  check('a subshell does not hide a force push', r.code, BLOCK, r.stderr);
+}
+
+// 3e · the protected-branch rules, both directions
+{
+  const r = run('git push --delete origin refs/heads/main', feature);
+  check('deleting main by qualified ref is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git branch -Dr refs/heads/main', feature);
+  check('deleting main with a bundled -D is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git push --delete origin feat/1-thing', feature);
+  check('deleting a feature branch on the remote is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('git branch -D feat/old', feature);
+  check('deleting a local feature branch is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run(
+    ['bash <<EOF', 'git push --force origin main', 'EOF'].join('\n'),
+    feature,
+  );
+  check('a heredoc feeding a shell is NOT treated as data', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('echo the guard blocks git commands using --no-verify', feature);
+  check('a sentence mentioning git and a flag is not an invocation', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('gh pr comment 5 --body-file notes.md', feature);
+  check('gh pr comment is not the merge gate', r.code, ALLOW, r.stderr);
 }
 
 // 4 · migrations are forward-only
