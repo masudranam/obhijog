@@ -116,8 +116,12 @@ export function withoutHeredocs(command) {
     kept.push(line);
     i++;
 
+    // `(?<!<)` and `(?!<)` exclude `<<<`, the herestring. It has no terminator, so
+    // treating it as a heredoc opener sent the scan below off the end of the command
+    // and deleted every remaining line — `grep x <<< "y"` on one line turned a real
+    // `git push --force` on the next into something no guard could see.
     const opened = [
-      ...line.matchAll(/<<-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g),
+      ...line.matchAll(/(?<!<)<<(?!<)-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g),
     ];
 
     if (opened.length === 0 || INTERPRETERS.test(line)) continue;
@@ -125,8 +129,16 @@ export function withoutHeredocs(command) {
     // Several heredocs can open on one line; their bodies arrive in that order.
     for (const open of opened) {
       const delimiter = open[1] ?? open[2] ?? open[3];
-      while (i < lines.length && lines[i].trim() !== delimiter) i++;
-      i++; // the terminator line itself
+
+      let end = i;
+      while (end < lines.length && lines[end].trim() !== delimiter) end++;
+
+      // No terminator anywhere: this is not a heredoc we understand, so keep the
+      // lines. Dropping them is the dangerous direction — a mistyped delimiter would
+      // silently switch every guard off for the rest of the command.
+      if (end >= lines.length) break;
+
+      i = end + 1; // skip the body and the terminator
     }
   }
 
@@ -150,17 +162,34 @@ export function segments(command) {
  * about. Requiring `git` to be the command word makes a sentence unmatchable while
  * leaving every real invocation matched.
  *
- * Leading environment assignments, `sudo`, and a subshell's `(` are stepped over,
- * because each is a normal way to reach the same command.
+ * Three kinds of prefix are stepped over, because each is an ordinary way to reach
+ * the same command and none of them is an attempt to hide it:
  *
- * **The narrowing this accepts:** `xargs git push --force` is no longer seen, because
- * the command word is `xargs`. That is deliberate. These guards exist so a rule the
- * agent was told once still holds on the four hundredth command — not to withstand an
- * agent deliberately routing around them, which nothing here could do anyway.
+ *   · shell control words — `if`, `then`, `do`, `else`, `{`, `(`. `segments` splits on
+ *     `;`, so `if true; then gh pr merge 9; fi` arrives here as `then gh pr merge 9`.
+ *     Without this the **merge gate itself** was bypassable by wrapping the merge in
+ *     an `if`, which review found before this shipped.
+ *   · environment assignments, and wrappers like `sudo`, `env`, `command`, `nohup`,
+ *     `time`, `timeout 30`.
+ *   · an absolute or relative path — `/usr/bin/git`.
+ *
+ * **The narrowing this accepts:** `xargs git push --force` is still not seen, because
+ * the command word is `xargs` and what follows is data to it rather than a command
+ * here. That is deliberate. These guards exist so a rule the agent was told once
+ * still holds on the four hundredth command — not to withstand an agent deliberately
+ * routing around them, which nothing here could do anyway.
  */
+// Punctuation needs no space after it — `(git push` — where a keyword does, or `dogit`
+// would read as `do git`.
+const CONTROL = String.raw`(?:[({&!]\s*|(?:if|then|elif|else|do|while|until)\s+)`;
+const WRAPPER = String.raw`(?:sudo|env|command|nohup|exec|time|timeout\s+\S+)`;
+
 export function argvFor(segment, program) {
   const invocation = new RegExp(
-    String.raw`^(?:[({&]\s*)*(?:[A-Za-z_]\w*=\S*\s+)*(?:sudo\s+(?:-\S+\s+)*)?${program}(?:\.exe)?\b`,
+    String.raw`^(?:\s*${CONTROL})*` +
+      String.raw`(?:[A-Za-z_]\w*=\S*\s+)*` +
+      String.raw`(?:${WRAPPER}\s+(?:-\S+\s+)*)*` +
+      String.raw`(?:[\w.\-]*[/\\])*${program}(?:\.exe)?\b`,
     'i',
   );
 
@@ -168,6 +197,18 @@ export function argvFor(segment, program) {
   if (!match) return null;
 
   return segment.slice(match[0].length).trim().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * The bare name of a git ref: `refs/heads/main` is `main`.
+ *
+ * The rules that protect `main` used to match it with `\b(main|master)\b`, which found
+ * it inside a path. Comparing argv tokens exactly lost that, so
+ * `git push --delete origin refs/heads/main` slipped through — a regression review
+ * caught. Both spellings name the same branch and both must be refused.
+ */
+export function refName(token) {
+  return token.split(/[/\\]/).pop();
 }
 
 /**

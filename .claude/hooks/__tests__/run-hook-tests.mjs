@@ -216,11 +216,95 @@ const feature = repo({ branch: 'feat/1-thing', withOrigin: true });
   check('a heredoc body quoting a blocked command is allowed', r.code, ALLOW, r.stderr);
 }
 {
+  // Also begins with `git`, for the same reason as above. An earlier version of this
+  // case started with prose, which made it a second argvFor test wearing a heredoc
+  // label — review found it surviving the removal of heredoc stripping.
   const r = run(
-    ['git commit -F - <<MSG', 'harness: stop allowing git push --force', 'MSG'].join('\n'),
+    ['git commit -F - <<MSG', 'git push --force is what this stops', 'MSG'].join('\n'),
     feature,
   );
-  check('a commit message mentioning a blocked command is allowed', r.code, ALLOW, r.stderr);
+  check('a commit message quoting a blocked command is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  // A herestring is one line of data with no terminator. Matching it as a heredoc
+  // opener ran the scan off the end and deleted every line after it, which switched
+  // the guards off for the rest of the command.
+  const r = run(['grep needle <<< "haystack"', 'git push --force origin main'].join('\n'), feature);
+  check('a herestring does not swallow the lines after it', r.code, BLOCK, r.stderr);
+}
+{
+  // Contrived on purpose, and it is the only shape that separates the two fixes.
+  // The case above is caught by the unterminated-delimiter guard whichever way `<<<`
+  // is matched — mutation showed it green with the `<<<` exclusion reverted. Here the
+  // herestring's word DOES appear as a later line, so a `<<<` read as a heredoc opener
+  // finds a terminator, swallows the force push between them, and allows it.
+  const r = run(
+    ['grep needle <<< "EOF"', 'git push --force origin main', 'EOF'].join('\n'),
+    feature,
+  );
+  check('a herestring is not a heredoc opener', r.code, BLOCK, r.stderr);
+}
+{
+  // Same failure by a different route: a delimiter that never appears again.
+  const r = run(['cat <<EOF > notes.md', 'a note', 'git reset --hard'].join('\n'), feature);
+  check('an unterminated heredoc does not swallow the lines after it', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('echo gh pr merge 99 needs a PASS verdict first', feature);
+  check('a sentence naming the merge gate does not trip it', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('gh api repos/o/r/merges --method POST', feature);
+  check('gh api merges is not the pr merge gate', r.code, ALLOW, r.stderr);
+}
+
+// 3d · control words and wrappers do not hide a command (#16 review)
+//
+// `segments` splits on `;`, so the body of an if or a for arrives as its own segment
+// beginning with `then` or `do`. Anchoring argvFor to the command word without
+// stepping over those made every rule here bypassable by wrapping it in a loop — the
+// merge gate included, which is the whole review workflow.
+{
+  const r = run('if true; then gh pr merge 99 --squash; fi', feature);
+  check('the merge gate is not bypassed by a then-clause', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('if git diff --quiet; then git push --force origin main; fi', feature);
+  check('a force push in a then-clause is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('for r in a b; do git push --force origin $r; done', feature);
+  check('a force push in a do-clause is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('DOTNET_ROLL_FORWARD=Major git push --force origin main', feature);
+  check('an env assignment does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('/usr/bin/git push --force origin main', feature);
+  check('an absolute path to git does not hide a force push', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('(git push --force origin main)', feature);
+  check('a subshell does not hide a force push', r.code, BLOCK, r.stderr);
+}
+
+// 3e · the protected-branch rules, both directions
+{
+  const r = run('git push --delete origin refs/heads/main', feature);
+  check('deleting main by qualified ref is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git branch -Dr refs/heads/main', feature);
+  check('deleting main with a bundled -D is blocked', r.code, BLOCK, r.stderr);
+}
+{
+  const r = run('git push --delete origin feat/1-thing', feature);
+  check('deleting a feature branch on the remote is allowed', r.code, ALLOW, r.stderr);
+}
+{
+  const r = run('git branch -D feat/old', feature);
+  check('deleting a local feature branch is allowed', r.code, ALLOW, r.stderr);
 }
 {
   const r = run(

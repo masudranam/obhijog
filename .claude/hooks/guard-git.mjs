@@ -10,8 +10,12 @@
  *   2. force pushes, and deletion of main
  *   3. skipping hooks with --no-verify
  *   4. `git reset --hard` — the one operation here that destroys work outright
- *   5. editing or deleting a committed EF migration (SPEC §16.4, forward-only)
+ *   5. deleting or moving a committed EF migration (SPEC §16.4, forward-only)
  *   6. `gh pr merge` unless a PASS verdict is recorded for the CURRENT head SHA
+ *
+ * Rule 5 says *deleting or moving*, not editing: this hook runs on `Bash|PowerShell`
+ * only, so an Edit tool call — or `sed -i` against a migration — is not something it
+ * can see. The header said "editing" for three milestones and was wrong.
  *
  * Deliberately NOT blocked, so the next reader does not assume otherwise:
  *   · `git rebase -i` — named in the same breath as the above in the user's own
@@ -31,6 +35,7 @@ import {
   readJsonIfExists,
   argvFor,
   hasShortFlag,
+  refName,
   segments,
   statePath,
 } from './_lib.mjs';
@@ -99,7 +104,8 @@ for (const part of parts) {
   const argv = argvFor(part, 'git');
   if (!argv) continue;
 
-  const namesProtected = argv.some((a) => PROTECTED.has(a));
+  // By bare name or by qualified ref: `main` and `refs/heads/main` are one branch.
+  const namesProtected = argv.some((a) => PROTECTED.has(refName(a)));
 
   if (argv.includes('push') && (argv.includes('--force') || hasShortFlag(argv, 'f'))) {
     block(
@@ -114,7 +120,7 @@ for (const part of parts) {
     block('BLOCKED: deleting the main branch on the remote.');
   }
 
-  if (argv.includes('branch') && argv.includes('-D') && namesProtected) {
+  if (argv.includes('branch') && hasShortFlag(argv, 'D') && namesProtected) {
     block('BLOCKED: deleting the local main branch.');
   }
 
